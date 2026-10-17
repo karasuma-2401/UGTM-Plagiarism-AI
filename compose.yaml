@@ -1,0 +1,67 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: ugtm_ai
+      POSTGRES_USER: ugtm_ai
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./sql/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ugtm_ai -d ugtm_ai"]
+      interval: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 20
+
+  api:
+    build: .
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment: &ai_env
+      POSTGRES_DSN: postgresql://ugtm_ai:${POSTGRES_PASSWORD}@db:5432/ugtm_ai
+      REDIS_URL: redis://redis:6379/0
+      API_KEY: ${AI_API_KEY}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-20}
+      DATA_DIR: /data
+      HF_HOME: /models
+    volumes:
+      - uploads:/data
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: celery -A app.celery_app.celery_app worker --loglevel=INFO --concurrency=1 --pool=solo
+    environment: *ai_env
+    volumes:
+      - uploads:/data
+      - models:/models
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  pgdata:
+  uploads:
+  models:
+

@@ -1,0 +1,12 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+models/
+data/
+*.pdf
+*.docx
+*.sql.gz
+*.log
+
