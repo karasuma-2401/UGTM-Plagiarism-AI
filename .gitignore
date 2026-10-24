@@ -4,9 +4,14 @@ __pycache__/
 .pytest_cache/
 *.pyc
 models/
+artifacts/
+training_data/
+training_runs/
+kaggle_bundle/
+corpus_staging/
+*.joblib
 data/
 *.pdf
 *.docx
 *.sql.gz
 *.log
-

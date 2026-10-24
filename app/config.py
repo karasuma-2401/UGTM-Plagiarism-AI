@@ -17,7 +17,8 @@ class Settings(BaseSettings):
     data_dir: Path = Path("/data")
     embedding_model: str = "BAAI/bge-m3"
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
+    classifier_enabled: bool = False
+    classifier_path: Path = Path("/artifacts/suspicious_passage_classifier.joblib")
 
 
 settings = Settings()
-

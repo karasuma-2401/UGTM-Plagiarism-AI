@@ -2,10 +2,13 @@ import logging
 
 from psycopg.types.json import Jsonb
 
+from app.alignment import group_adjacent_findings
 from app.celery_app import celery_app
+from app.classifier import score_candidate
 from app.config import settings
 from app.db import connect, get_job, set_status
 from app.documents import extract_pages, make_chunks
+from app.features import build_features
 from app.models import encode_texts, rerank_pairs
 from app.search import retrieve, vector_literal
 
@@ -25,14 +28,13 @@ def index_source(job_id: str):
     try:
         job = get_job(job_id)
         chunks = parse_job(job)
-        embeddings = encode_texts([chunk.text for chunk in chunks])
-
+        embeddings = encode_texts([x.text for x in chunks])
         with connect() as con:
             row = con.execute(
                 """
                 INSERT INTO integrity.sources
                   (corpus_id, source_key, version, filename, file_sha256)
-                VALUES (%s, %s, %s, %s, %s)
+                VALUES (%s,%s,%s,%s,%s)
                 ON CONFLICT (corpus_id, source_key, version)
                 DO UPDATE SET filename = EXCLUDED.filename,
                               file_sha256 = EXCLUDED.file_sha256
@@ -55,9 +57,9 @@ def index_source(job_id: str):
                 con.execute(
                     """
                     INSERT INTO integrity.chunks
-                      (source_id, chunk_no, page_number, start_offset,
-                       end_offset, content, embedding)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s::vector)
+                    (source_id, chunk_no, page_number, start_offset,
+                     end_offset, content, embedding)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s::vector)
                     """,
                     (
                         source_id,
@@ -69,8 +71,7 @@ def index_source(job_id: str):
                         vector_literal(vector),
                     ),
                 )
-
-            # Chỉ chuyển active version sau khi toàn bộ indexing thành công.
+            # Chỉ chuyển phiên bản active khi indexing hoàn tất.
             con.execute(
                 """
                 UPDATE integrity.sources SET is_active = FALSE
@@ -89,7 +90,8 @@ def index_source(job_id: str):
             con.execute(
                 """
                 UPDATE integrity.jobs
-                SET status = 'completed', updated_at = now(), report = %s
+                SET status = 'completed', updated_at = now(),
+                    report = %s
                 WHERE id = %s::uuid
                 """,
                 (
@@ -124,42 +126,76 @@ def scan_document(job_id: str):
             raise ValueError("CORPUS_EMPTY")
 
         query_chunks = parse_job(job)
-        vectors = encode_texts([chunk.text for chunk in query_chunks])
+        vectors = encode_texts([x.text for x in query_chunks])
         all_findings: list[dict] = []
         for query_chunk, vector in zip(query_chunks, vectors):
             candidates = retrieve(query_chunk.text, vector, job["corpus_id"])
             if not candidates:
                 continue
             pairs = [
-                [query_chunk.text, item["source_text"]] for item in candidates
+                [query_chunk.text, item["source_text"]]
+                for item in candidates
             ]
             scores = rerank_pairs(pairs)
             for item, score in zip(candidates, scores):
-                # Heuristic demo, không phải ngưỡng kết luận đạo văn.
-                lexical = item["lexical_score"] or 0.0
-                dense = item["dense_score"] or 0.0
-                review = lexical >= 0.65 or (dense >= 0.68 and score >= 0.67)
+                # Mọi candidate có dense_score/lexical_score đầy đủ sau retrieve().
+                lexical = float(item["lexical_score"])
+                dense = float(item["dense_score"])
+                features = build_features(
+                    query_chunk.text,
+                    item["source_text"],
+                    dense,
+                    float(score),
+                )
+                result = score_candidate(features)  # None khi feature flag OFF
+                if result is None:
+                    # Chỉ là heuristic demo; phải hiệu chỉnh với dữ liệu có nhãn.
+                    review = lexical >= 0.65 or (dense >= 0.68 and score >= 0.67)
+                    decision_source = "heuristic"
+                else:
+                    # Near-exact override giúp không bỏ qua copy gần nguyên văn.
+                    review = (
+                        result["score"] >= result["threshold"]
+                        or lexical >= 0.92
+                    )
+                    decision_source = (
+                        "near_exact_override"
+                        if lexical >= 0.92
+                        else "custom_classifier"
+                    )
                 if not review:
                     continue
                 all_findings.append(
                     {
+                        "submission_chunk_no": query_chunk.chunk_no,
                         "submission_page": query_chunk.page_number,
                         "submission_start": query_chunk.start_offset,
                         "submission_end": query_chunk.end_offset,
                         "submission_text": query_chunk.text,
                         **item,
-                        "reranker_score": round(score, 4),
+                        "reranker_score": round(float(score), 4),
+                        "classifier_score": (
+                            round(result["score"], 4) if result else None
+                        ),
+                        "decision_source": decision_source,
+                        "feature_values": features,
                         "review_required": True,
                     }
                 )
 
-        all_findings.sort(
-            key=lambda finding: finding["reranker_score"],
-            reverse=True,
-        )
-        findings = all_findings[:200]
+        # Sắp xếp, giữ một vài bằng chứng có điểm tốt nhất trên mỗi chunk.
+        all_findings.sort(key=lambda f: f["reranker_score"], reverse=True)
+        findings = group_adjacent_findings(all_findings[:200])
+        # Các ID nhóm passage chỉ dành cho UI, không phải kết luận đạo văn.
+        if settings.classifier_enabled:
+            from app.classifier import load_classifier
+
+            _, classifier_manifest = load_classifier()
+            classifier_version = classifier_manifest["model_version"]
+        else:
+            classifier_version = None
         report = {
-            "schema_version": 1,
+            "schema_version": 2,
             "job_id": job_id,
             "corpus_id": job["corpus_id"],
             "submission_id": job["document_key"],
@@ -167,14 +203,17 @@ def scan_document(job_id: str):
             "model": {
                 "embedding": settings.embedding_model,
                 "reranker": settings.reranker_model,
+                "classifier_version": classifier_version,
+                "detector_mode": (
+                    "classifier" if settings.classifier_enabled else "heuristic"
+                ),
             },
             "summary": {
                 "scanned_chunks": len(query_chunks),
                 "flagged_pairs": len(all_findings),
                 "findings_returned": len(findings),
-                "matched_sources": len(
-                    {finding["source_key"] for finding in all_findings}
-                ),
+                "matched_sources": len({f["source_key"] for f in all_findings}),
+                "passage_groups": len({f["passage_group_id"] for f in findings}),
             },
             "findings": findings,
             "disclaimer": (
@@ -186,12 +225,11 @@ def scan_document(job_id: str):
             con.execute(
                 """
                 UPDATE integrity.jobs
-                SET status = 'completed', report = %s, updated_at = now()
-                WHERE id = %s::uuid
+                SET status='completed', report=%s, updated_at=now()
+                WHERE id=%s::uuid
                 """,
                 (Jsonb(report), job_id),
             )
     except Exception:
         logger.exception("Scan job failed: %s", job_id)
         set_status(job_id, "failed", "SCAN_ERROR")
-

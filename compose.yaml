@@ -32,6 +32,8 @@ services:
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-20}
       DATA_DIR: /data
       HF_HOME: /models
+      CLASSIFIER_ENABLED: ${CLASSIFIER_ENABLED:-false}
+      CLASSIFIER_PATH: ${CLASSIFIER_PATH:-/artifacts/suspicious_passage_classifier.joblib}
     volumes:
       - uploads:/data
     depends_on:
@@ -47,6 +49,7 @@ services:
     volumes:
       - uploads:/data
       - models:/models
+      - ./artifacts:/artifacts:ro
     depends_on:
       db:
         condition: service_healthy
@@ -64,4 +67,3 @@ volumes:
   pgdata:
   uploads:
   models:
-

@@ -4,7 +4,13 @@
 __pycache__
 .pytest_cache
 models
+artifacts
+training_data
+training_runs
+kaggle_bundle
+corpus_staging
 data
+*.joblib
 *.pdf
 *.docx
 *.sql.gz

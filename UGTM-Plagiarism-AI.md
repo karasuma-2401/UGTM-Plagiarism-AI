@@ -1,20 +1,24 @@
-# UGTM-Plagiarism-AI — Tài liệu thiết kế và triển khai
+# UGTM-Plagiarism-AI — Hướng dẫn cập nhật source code: Hybrid AI Pipeline + Custom Classifier (v2)
 
-> **Mục đích:** Xây dựng một dịch vụ AI kiểm tra **mức độ tương đồng học thuật** cho hệ thống quản lý khóa luận tốt nghiệp UGTM, không làm nghiên cứu khoa học và không tự động kết luận sinh viên đạo văn.
+> **Mục đích (QUYẾT ĐỊNH MỚI — 19/10/2026):** Triển khai **kết hợp cả hai hướng**: (1) **Hybrid Lexical + Semantic Retrieval → Reranking → Passage Alignment → Evidence Report**, (2) **Custom Classifier do nhóm tự huấn luyện** để chấm điểm *ứng viên tái sử dụng nội dung* dựa trên nhiều tín hiệu. Model này là phần tăng cường; **không tự kết luận sinh viên đạo văn**. Đây là hướng **tính năng sản phẩm** của đồ án SE310, không phải dự án nghiên cứu khoa học độc lập.
 >
-> **Giả định đã chốt (17/10/2026):** Nhóm có GPU NVIDIA chạy được PyTorch/CUDA; tạo **repo Python riêng**; hệ thống UGTM tiếp tục sử dụng **ASP.NET Core (.NET 10), React 19, PostgreSQL**, kiến trúc Modular Monolith/DDD; dự định xin phép thư viện UIT sử dụng khoảng **20–50 khóa luận** làm nguồn đối chiếu.
+> **Quy ước áp dụng tài liệu:** Đây là **bản v2 tích hợp**, thay thế hướng chỉ có pretrained model ở bản cũ. Các khối mã bên dưới là source mẫu để tạo/cập nhật **repo AI riêng**, không phải PR đã áp dụng lên GitHub. **Giai đoạn A** chạy pipeline cơ bản; **Giai đoạn B** có dữ liệu gán nhãn thì train classifier và bật bằng feature flag. Dùng cùng một hợp đồng API với .NET trong cả hai giai đoạn.
 >
-> **Tình trạng kiểm chứng:** Kết nối GitHub tới `karasuma-2401/UGTM` trả về 404, nên **chưa review được mã nguồn thực tế**. Các tên class/module tích hợp .NET trong tài liệu là **đề xuất**, không phải tên hiện có của repo. Những đặc điểm .NET/DDD/PDF-DOCX căn cứ vào báo cáo phân tích thiết kế của nhóm. Code bên dưới là **reference implementation hướng MVP**, chưa được chạy end-to-end trên GPU, Docker hay repo của nhóm; cần kiểm thử tại môi trường thật trước khi dùng chính thức.
+> **Giả định kỹ thuật (có thể thay đổi):** Tài liệu giả định có GPU NVIDIA/PyTorch CUDA khi chạy BGE-M3 và reranker; **hiện nhóm CHƯA có GPU được cấp**, vì vậy chưa được coi GPU là hạ tầng đang sẵn sàng. Nhóm có thể phát triển parser, API, Postgres, feature logic, classifier nhỏ và unit tests trên CPU; GPU là mục tiêu cho inference nặng. Nhóm tạo **repo Python riêng**; hệ thống UGTM tiếp tục sử dụng **ASP.NET Core (.NET 10), React 19, PostgreSQL**, kiến trúc Modular Monolith/DDD; dự định xin phép thư viện UIT sử dụng khoảng **20–50 khóa luận** làm nguồn đối chiếu.
+>
+> **Tình trạng kiểm chứng 19/10/2026:** Kết nối GitHub tới `karasuma-2401/UGTM` vẫn trả về 404, nên **chưa review được mã nguồn thực tế**. Các tên class/module tích hợp .NET trong tài liệu là **đề xuất**, không phải tên hiện có của repo. Những đặc điểm .NET/DDD/PDF-DOCX căn cứ vào báo cáo phân tích thiết kế của nhóm. Code bên dưới là **reference implementation hướng MVP**, chưa được chạy end-to-end trên GPU, Docker hay repo của nhóm; cần kiểm thử tại môi trường thật trước khi dùng chính thức.
 
 ## 0. Quyết định kỹ thuật và phạm vi
 
 ### Chốt kiến trúc
 
 - **Repo 1** — `karasuma-2401/UGTM`: giao diện, đăng nhập, phân quyền, quy trình nộp báo cáo, giữ file gốc, liên kết kết quả AI với bản nộp, cho GVHD/GVPB xem báo cáo.
-- **Repo 2** — `UGTM-Plagiarism-AI`: dịch vụ Python **FastAPI**, **Celery worker** dùng GPU, trích xuất PDF/DOCX, tìm kiếm lexical + semantic, reranking, trả bằng chứng đối chiếu.
+- **Repo 2** — `UGTM-Plagiarism-AI`: dịch vụ Python **FastAPI**, **Celery worker** (GPU khi được cấp), trích xuất PDF/DOCX, tìm kiếm lexical + semantic, reranking, phân nhóm đoạn và trả bằng chứng; có **custom classifier versioned** tùy chọn.
 - **Database:** PostgreSQL có `pgvector`, dùng schema `integrity`; bản MVP có thể sử dụng **database riêng** `ugtm_ai` để tránh phụ thuộc bảng nghiệp vụ của UGTM. Không chia sẻ Entity Framework DbContext hoặc domain entity qua hai dịch vụ.
 - **Queue:** Redis + Celery, không chạy AI trực tiếp trong HTTP request của sinh viên.
-- **Model:** `BAAI/bge-m3` (**dense 1024 chiều**) và `BAAI/bge-reranker-v2-m3`, chạy inference GPU, không fine-tune trong MVP.
+- **Base models (không train lại):** `BAAI/bge-m3` (**dense 1024 chiều**) và `BAAI/bge-reranker-v2-m3` để encode + rerank; dự kiến inference GPU.
+- **Model nhóm tự training (giai đoạn B):** `scikit-learn` Logistic Regression trên **5 tín hiệu ổn định**, huấn luyện CPU sau khi đã dùng model nền trích đặc trưng và tự gán nhãn dữ liệu. **Chưa cần fine-tune Transformer.** Có `CLASSIFIER_ENABLED` để bật/tắt; thiếu/mismatch artifact thì fail rõ ràng, không lặng lẽ đổi chiến lược.
+- **Luồng quyết định:** pipeline trả các *candidate pair*. Classifier chỉ xếp hạng/cắm cờ `review_required`, không quyết định kỷ luật; một số rule an toàn phục vụ demo có thể hỗ trợ cảnh báo sao chép gần nguyên văn.
 - **Lexical:** PostgreSQL `pg_trgm` trên các đoạn văn, đủ cho corpus nhỏ. Sau này mới cân nhắc BM25/Elasticsearch/OpenSearch.
 - **Quyền:** sinh viên **không** gọi AI trực tiếp; ASP.NET Core gọi API nội bộ có xác thực service-to-service. Báo cáo là gợi ý để giảng viên kiểm tra.
 
@@ -26,11 +30,13 @@
 4. Worker thực hiện lexical search + dense vector search + RRF + reranker.
 5. Báo cáo gồm **đoạn trong bài nộp**, **đoạn nguồn**, tài liệu, trang, điểm lexical/dense/reranker, cờ `review_required`.
 6. GVHD/GVPB có màn hình xem và nhận xét; AI không tự cấm nộp, không tự đánh rớt KLTN.
+7. Khi có tập cặp đoạn **đã được người kiểm tra gán nhãn**: chạy `training/train_classifier.py`, xuất `artifacts/suspicious_passage_classifier.joblib` và manifest, chạy lại test rồi bật classifier bằng cấu hình.
+8. Report phải có `detector_mode`, `classifier_version` (hoặc `null`), `decision_source` và các tín hiệu; tính năng **Passage Alignment** nhóm các hit liền kề để giảng viên xem dễ hơn.
 
 ### Những thứ **không** tuyên bố đã có trong code MVP
 
 - OCR PDF scan; PDF nhiều cột/bảng/hình ảnh phức tạp; đọc mã nguồn và biểu đồ; phát hiện đạo văn ý tưởng.
-- Phân tích trích dẫn đáng tin cậy ở cấp câu; phân loại “nội dung AI tạo ra”; tìm kiếm trên toàn Internet.
+- Phân tích trích dẫn đáng tin cậy ở cấp câu; phân loại “nội dung AI tạo ra”; tìm kiếm trên toàn Internet. **Trong v2 chỉ ghi nhận metadata/trích dẫn nếu có, chưa triển khai citation-aware filtering tự động.**
 - Highlight theo **tọa độ PDF**; code chỉ có **offset trên văn bản đã trích xuất** và `page_number` PDF. DOCX **không** có trang ổn định.
 - Độ chính xác hay ngưỡng “đạo văn 30%”; muốn có cần dữ liệu gán nhãn và hiệu chỉnh.
 - Vận hành production: object storage, retry/dead-letter, metrics, migration/backup đầy đủ và bảo vệ dữ liệu nâng cao được liệt kê ở cuối tài liệu.
@@ -68,10 +74,11 @@
                   sources / chunks / jobs
 ```
 
-**Hai pipeline riêng biệt:**
+**Ba pipeline độc lập, có thứ tự phụ thuộc:**
 
 - **Indexing (ít chạy):** khóa luận nguồn → text extraction → chunking → embedding → lưu vector + metadata → bật `is_active` cho phiên bản mới.
-- **Scanning (mỗi bản nộp):** báo cáo mới → extraction → chunking → embedding → lấy top-K từ corpus đang active → tìm kiếm lexical → RRF → rerank → kết quả.
+- **Scanning (mỗi bản nộp):** báo cáo mới → extraction → chunking → embedding → dense & lexical retrieve → RRF → rerank → tính 5 features → **classifier nếu bật / heuristic nếu tắt** → passage grouping → báo cáo.
+- **Offline training (không chạy lúc upload):** thu thập các cặp đoạn đã có nhãn `reused=1` hoặc `independent=0` → tạo 5 features bằng **chính hàm inference** → chia train/validation/test theo nhóm nguồn → huấn luyện classifier nhỏ trên CPU → chọn ngưỡng từ validation → kiểm thử trên test → xuất artifact và manifest. Khi không có đủ nhãn, giữ `CLASSIFIER_ENABLED=false`.
 
 ## 2. Cách hoạt động của các thuật toán
 
@@ -89,7 +96,11 @@
 
 **Reranking:** `bge-reranker-v2-m3` chấm từng cặp (đoạn nộp, đoạn nguồn). `normalize=True` trả về score sau sigmoid **không phải xác suất đạo văn**. Chỉ rerank danh sách ngắn để giảm chi phí GPU.
 
-**Cờ cần rà soát:** ví dụ MVP dùng `lexical >= 0.65` **hoặc** `(dense >= 0.68 và reranker >= 0.67)`. Đây **chỉ là ngưỡng khởi tạo để demo**, không phải ngưỡng khoa học hay quy chế UIT: phải điều chỉnh sau khi xem mẫu thật. Không tự động kết luận vi phạm.
+**Cờ cần rà soát khi chưa bật classifier:** ví dụ MVP dùng `lexical >= 0.65` **hoặc** `(dense >= 0.68 và reranker >= 0.67)`. Đây **chỉ là ngưỡng khởi tạo để demo**, không phải ngưỡng khoa học hay quy chế UIT: phải điều chỉnh sau khi xem mẫu thật. Không tự động kết luận vi phạm.
+
+**Passage Alignment (v2):** sau khi có cặp đã gắn cờ, nhóm các hit trên cùng một nguồn khi thứ tự `submission_chunk_no` và `source_chunk_no` liên tiếp (và ngữ cảnh trang hợp lý). Trả `passage_group_id` để FE gộp hiển thị. Đây là **nhóm đoạn có tương đồng**, không phải bằng chứng độc lập của hành vi đạo văn.
+
+**Classifier (v2):** 5 feature `semantic_cosine`, `reranker_score`, `char_trigram_dice`, `token_jaccard`, `length_ratio`. Hai feature cuối và `char_trigram_dice` tính tại Python **giống hệt offline và online**; `semantic_cosine` lấy từ pgvector cosine distance (sau khi truy xuất candidates); `reranker_score` lấy từ model. `review_required` sử dụng `classifier_score >= threshold_from_manifest` hoặc rule gần nguyên văn. `classifier_score` là **điểm của bộ phân loại đã train trên dữ liệu nhóm** chứ không phải xác suất đạo văn thực tế.
 
 **Không tính phần trăm đạo văn trong MVP.** Nếu thêm “tỷ lệ vùng văn bản trùng với kho”, phải gộp khoảng offset (tránh đếm double do chunk chồng lấn), xác định mẫu số là phần văn bản đủ điều kiện và giải thích phụ thuộc vào tập tài liệu đã index.
 
@@ -106,13 +117,22 @@ UGTM-Plagiarism-AI/
 │   ├── documents.py
 │   ├── models.py
 │   ├── search.py
+│   ├── features.py                # feature dùng chung train/inference
+│   ├── classifier.py              # artifact + inference + validation
+│   ├── alignment.py               # gộp cặp đoạn liền kề
 │   ├── celery_app.py
 │   ├── tasks.py
 │   └── main.py
 ├── sql/
 │   └── 001_init.sql
+├── training/
+│   └── train_classifier.py       # training offline theo source groups
+├── training_data/                # KHÔNG commit, chứa pairs.csv có nhãn
+├── artifacts/                    # KHÔNG commit, model + manifest đã kiểm thử
 ├── tests/
-│   └── test_documents.py
+│   ├── test_documents.py
+│   ├── test_features.py
+│   └── test_alignment.py
 ├── requirements.txt
 ├── Dockerfile
 ├── compose.yaml
@@ -132,6 +152,10 @@ __pycache__/
 .pytest_cache/
 *.pyc
 models/
+artifacts/
+training_data/
+training_runs/
+*.joblib
 data/
 *.pdf
 *.docx
@@ -143,7 +167,7 @@ data/
 
 ## 4. Cài đặt Docker/GPU
 
-**Yêu cầu:** Linux server hoặc WSL2 có NVIDIA driver, Docker Engine/Compose Plugin và NVIDIA Container Toolkit; `nvidia-smi` hoạt động; `docker compose ...` có thể phân bổ GPU. Kiểm thử riêng GPU trước:
+**Yêu cầu cho giai đoạn inference GPU (chưa cần ở giai đoạn phát triển CPU):** Linux server hoặc WSL2 có NVIDIA driver, Docker Engine/Compose Plugin và NVIDIA Container Toolkit; `nvidia-smi` hoạt động; `docker compose ...` có thể phân bổ GPU. Kiểm thử riêng GPU trước:
 
 ```bash
 nvidia-smi
@@ -164,6 +188,8 @@ PyMuPDF>=1.24,<2
 python-docx>=1.1,<2
 FlagEmbedding>=1.3,<2
 numpy>=1.26,<3
+scikit-learn>=1.5,<2
+joblib>=1.4,<2
 pytest>=8,<10
 ```
 
@@ -180,6 +206,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN python -m pip install --no-cache-dir -r requirements.txt
 COPY app ./app
+COPY training ./training
 COPY tests ./tests
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
@@ -190,6 +217,8 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 POSTGRES_PASSWORD=replace-with-strong-password
 AI_API_KEY=replace-with-long-random-private-key
 MAX_UPLOAD_MB=20
+CLASSIFIER_ENABLED=false
+CLASSIFIER_PATH=/artifacts/suspicious_passage_classifier.joblib
 ```
 
 Sau đó chạy `cp .env.example .env` và sửa bằng secret thật. Với việc triển khai máy chủ, cấp `.env` qua secret manager thay vì git.
@@ -231,6 +260,8 @@ services:
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-20}
       DATA_DIR: /data
       HF_HOME: /models
+      CLASSIFIER_ENABLED: ${CLASSIFIER_ENABLED:-false}
+      CLASSIFIER_PATH: ${CLASSIFIER_PATH:-/artifacts/suspicious_passage_classifier.joblib}
     volumes:
       - uploads:/data
     depends_on:
@@ -246,6 +277,7 @@ services:
     volumes:
       - uploads:/data
       - models:/models
+      - ./artifacts:/artifacts:ro
     depends_on:
       db:
         condition: service_healthy
@@ -355,6 +387,8 @@ class Settings(BaseSettings):
     data_dir: Path = Path("/data")
     embedding_model: str = "BAAI/bge-m3"
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
+    classifier_enabled: bool = False
+    classifier_path: Path = Path("/artifacts/suspicious_passage_classifier.joblib")
 
 
 settings = Settings()
@@ -534,7 +568,7 @@ def rerank_pairs(pairs: list[list[str]], batch_size: int = 8) -> list[float]:
     return [float(v) for v in scores]
 ```
 
-**GPU:** Model tải một lần khi worker gọi đầu tiên. Có thể mất vài phút trong lần đầu (download trọng số). Nếu VRAM không đủ, giảm `batch_size` 8 → 4 → 2, giảm số cặp rerank, hoặc chia embedding/rerank thành hai worker khác GPU. Sau khi ổn định cần lưu model snapshot revision và cache weights. GPU NVIDIA không đồng nghĩa chắc chắn có đủ VRAM cho cả hai model — phải đo bằng `nvidia-smi`.
+**GPU (khi nhóm có GPU):** Model tải một lần khi worker gọi đầu tiên. Có thể mất vài phút trong lần đầu (download trọng số). Nếu VRAM không đủ, giảm `batch_size` 8 → 4 → 2, giảm số cặp rerank, hoặc chia embedding/rerank thành hai worker khác GPU. Sau khi ổn định cần lưu model snapshot revision và cache weights. GPU NVIDIA không đồng nghĩa chắc chắn có đủ VRAM cho cả hai model — phải đo bằng `nvidia-smi`.
 
 ## 9. Code Python — truy tìm ứng viên và hợp nhất RRF
 
@@ -597,11 +631,179 @@ def retrieve(query_text: str, query_vector, corpus_id: str,
             item["rrf_score"] += 1.0 / (60 + rank)
             score_key = branch + "_score"
             item[score_key] = float(row[score_key])
-    return sorted(merged.values(),
-                  key=lambda x: x["rrf_score"], reverse=True)[:fused_k]
+    # Chốt score từ CẢ HAI phương pháp trên TỪNG ứng viên, không giữ NULL
+    # chỉ vì candidate được tìm thấy bởi một nhánh. Điều này quan trọng
+    # để vector feature lúc train và inference cùng một định nghĩa.
+    selected = sorted(
+        merged.values(), key=lambda x: x["rrf_score"], reverse=True
+    )[:fused_k]
+    if not selected:
+        return []
+    ids = [int(x["chunk_id"]) for x in selected]
+    with connect() as con:
+        scores = con.execute("""
+            SELECT id,
+                   1 - (embedding <=> %s::vector) AS dense_score,
+                   similarity(content, %s) AS lexical_score,
+                   chunk_no
+            FROM integrity.chunks
+            WHERE id = ANY(%s::bigint[])
+        """, (vector, query_text, ids)).fetchall()
+    score_by_id = {row["id"]: row for row in scores}
+    for item in selected:
+        row = score_by_id[item["chunk_id"]]
+        item["dense_score"] = float(row["dense_score"])
+        item["lexical_score"] = float(row["lexical_score"])
+        item["source_chunk_no"] = int(row["chunk_no"])
+    return selected
 ```
 
 **Hiệu năng MVP:** đoạn trên thực hiện **hai câu truy vấn cho mỗi query chunk** (dense + trigram), dễ hiểu nhưng có thể tốn thời gian nếu quét hàng trăm chunk. Với corpus 20–50 khóa luận, hãy đo trước. Nếu chậm, tối ưu bằng batch retrieval, giới hạn những chương cần kiểm tra, cache candidates và tạo index phù hợp. Không nên tuyên bố API xử lý “trong vài giây” khi chưa benchmark.
+
+## 9A. Code Python — Feature Engineering chung cho train và inference (MỚI V2)
+
+### `app/features.py`
+
+**Không lấy `pg_trgm.similarity` làm feature training**, vì offline dataset chưa chắc ở trong Postgres. Lấy điểm pg_trgm cho retrieval và UI; dùng hàm Python deterministic cho đặc trưng để bảo đảm `train == inference`.
+
+```python
+import re
+from collections import Counter
+
+FEATURE_SCHEMA = "candidate-features-v1"
+FEATURE_NAMES = [
+    "semantic_cosine",
+    "reranker_score",
+    "char_trigram_dice",
+    "token_jaccard",
+    "length_ratio",
+]
+
+
+def tokens(text: str) -> list[str]:
+    return re.findall(r"\w+", text.casefold(), flags=re.UNICODE)
+
+
+def char_trigrams(text: str) -> Counter:
+    text = " ".join(tokens(text))
+    if len(text) < 3:
+        return Counter([text]) if text else Counter()
+    return Counter(text[i:i + 3] for i in range(len(text) - 2))
+
+
+def dice_similarity(a: str, b: str) -> float:
+    x, y = char_trigrams(a), char_trigrams(b)
+    denom = sum(x.values()) + sum(y.values())
+    return (2 * sum((x & y).values()) / denom) if denom else 0.0
+
+
+def build_features(query_text: str, source_text: str,
+                   semantic_cosine: float, reranker_score: float) -> dict:
+    a, b = set(tokens(query_text)), set(tokens(source_text))
+    ratio = min(len(tokens(query_text)), len(tokens(source_text))) / max(
+        len(tokens(query_text)), len(tokens(source_text)), 1
+    )
+    return {
+        "semantic_cosine": float(semantic_cosine),
+        "reranker_score": float(reranker_score),
+        "char_trigram_dice": dice_similarity(query_text, source_text),
+        "token_jaccard": len(a & b) / len(a | b) if a or b else 0.0,
+        "length_ratio": float(ratio),
+    }
+
+
+def feature_vector(features: dict) -> list[float]:
+    return [float(features[name]) for name in FEATURE_NAMES]
+```
+
+**Feature chưa đưa vào classifier v1:** `citation_present`, `section_similarity`, `passage_continuity`. Chúng rất hữu ích trong tương lai nhưng cần parser và nhãn chất lượng. **Không tự thêm feature lúc inference nếu artifact train không biết feature đó.**
+
+## 9B. Code Python — Load model nhóm train + feature flag (MỚI V2)
+
+### `app/classifier.py`
+
+```python
+import json
+from functools import lru_cache
+from pathlib import Path
+
+import joblib
+from app.config import settings
+from app.features import FEATURE_NAMES, FEATURE_SCHEMA, feature_vector
+
+
+@lru_cache(maxsize=1)
+def load_classifier():
+    # Chỉ dùng artifact do pipeline nội bộ tạo và đã được kiểm chứng.
+    # joblib/pickle KHÔNG an toàn với file không đáng tin cậy.
+    path = Path(settings.classifier_path)
+    manifest_path = path.with_suffix(".manifest.json")
+    if not path.is_file() or not manifest_path.is_file():
+        raise RuntimeError("CLASSIFIER_ARTIFACT_MISSING")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if (manifest.get("feature_schema") != FEATURE_SCHEMA or
+        manifest.get("feature_names") != FEATURE_NAMES):
+        raise RuntimeError("CLASSIFIER_FEATURE_SCHEMA_MISMATCH")
+    if (manifest.get("embedding_model") != settings.embedding_model or
+        manifest.get("reranker_model") != settings.reranker_model):
+        raise RuntimeError("CLASSIFIER_BASE_MODEL_MISMATCH")
+    model = joblib.load(path)
+    return model, manifest
+
+
+def score_candidate(features: dict):
+    if not settings.classifier_enabled:
+        return None
+    model, manifest = load_classifier()
+    # predict_proba là điểm mô hình trên dữ liệu huấn luyện, KHÔNG phải
+    # xác suất vi phạm quy chế hay đạo văn trong thực tế.
+    score = float(model.predict_proba([feature_vector(features)])[0, 1])
+    return {
+        "score": score,
+        "threshold": float(manifest["threshold"]),
+        "version": str(manifest["model_version"]),
+    }
+```
+
+**Feature flag:** mặc định `CLASSIFIER_ENABLED=false`. Với Docker Compose bind mount `./artifacts`, tạo thư mục bằng `mkdir -p artifacts training_data` trước khi chạy để tránh Docker tự tạo thư mục do root sở hữu. Sau khi train và kiểm thử: đưa cả `.joblib` và `.manifest.json` lên volume read-only cho worker; đặt `CLASSIFIER_ENABLED=true`; **restart worker** (model được cache). Nếu bật mà không có artifact hoặc schema không khớp, job phải lỗi rõ ràng — không tự động chuyển về heuristic mà che giấu lỗi.
+
+## 9C. Code Python — Gộp findings liền kề (Passage Alignment, MỚI V2)
+
+### `app/alignment.py`
+
+```python
+from collections import defaultdict
+
+
+def group_adjacent_findings(findings: list[dict]) -> list[dict]:
+    # Cùng source + cùng version, và chunk của 2 tài liệu cùng tiến tới.
+    # Với chunk overlap, group chỉ là tiện ích hiển thị, chưa hợp nhất
+    # chính xác khoảng ký tự toàn văn giữa các trang.
+    by_source = defaultdict(list)
+    for f in findings:
+        by_source[(f["source_key"], f["source_version"])].append(f)
+
+    next_id = 1
+    for group in by_source.values():
+        group.sort(key=lambda x: (x["submission_chunk_no"],
+                                  x["source_chunk_no"]))
+        previous = None
+        for f in group:
+            contiguous = (
+                previous is not None
+                and 0 <= f["submission_chunk_no"] - previous["submission_chunk_no"] <= 1
+                and 0 <= f["source_chunk_no"] - previous["source_chunk_no"] <= 1
+            )
+            if contiguous:
+                f["passage_group_id"] = previous["passage_group_id"]
+            else:
+                f["passage_group_id"] = f"PG-{next_id:04d}"
+                next_id += 1
+            previous = f
+    return findings
+```
+
+> **Giới hạn:** Với cùng một query chunk có nhiều nguồn/candidate, hoặc những đoạn bị đảo vị trí mạnh, rule liền kề này chưa thay thế được thuật toán sequence alignment tối ưu. Để tránh group nhầm khi dữ liệu lớn, sau MVP có thể dùng dynamic programming và chặn khoảng trang/offset.
 
 ## 10. Code Python — Celery tasks indexing/scanning
 
@@ -630,6 +832,9 @@ from app.db import connect, get_job, set_status
 from app.documents import extract_pages, make_chunks
 from app.models import encode_texts, rerank_pairs
 from app.search import retrieve, vector_literal
+from app.features import build_features
+from app.classifier import score_candidate
+from app.alignment import group_adjacent_findings
 
 logger = logging.getLogger(__name__)
 
@@ -717,27 +922,55 @@ def scan_document(job_id: str):
                      for item in candidates]
             scores = rerank_pairs(pairs)
             for item, score in zip(candidates, scores):
-                # Heuristic demo: không phải ngưỡng kết luận đạo văn.
-                lexical = item["lexical_score"] or 0.0
-                dense = item["dense_score"] or 0.0
-                review = lexical >= 0.65 or (dense >= 0.68 and score >= 0.67)
+                # Mọi candidate có dense_score/lexical_score đầy đủ sau retrieve().
+                lexical = float(item["lexical_score"])
+                dense = float(item["dense_score"])
+                features = build_features(
+                    query_chunk.text, item["source_text"], dense, float(score)
+                )
+                result = score_candidate(features)  # None khi feature flag OFF
+                if result is None:
+                    # Chỉ là heuristic demo; phải hiệu chỉnh với dữ liệu có nhãn.
+                    review = lexical >= 0.65 or (dense >= 0.68 and score >= 0.67)
+                    decision_source = "heuristic"
+                else:
+                    # Near-exact override giúp không bỏ qua copy gần nguyên văn.
+                    review = (result["score"] >= result["threshold"]
+                              or lexical >= 0.92)
+                    decision_source = (
+                        "near_exact_override" if lexical >= 0.92
+                        else "custom_classifier"
+                    )
                 if not review:
                     continue
                 all_findings.append({
+                    "submission_chunk_no": query_chunk.chunk_no,
                     "submission_page": query_chunk.page_number,
                     "submission_start": query_chunk.start_offset,
                     "submission_end": query_chunk.end_offset,
                     "submission_text": query_chunk.text,
                     **item,
-                    "reranker_score": round(score, 4),
+                    "reranker_score": round(float(score), 4),
+                    "classifier_score": (
+                        round(result["score"], 4) if result else None
+                    ),
+                    "decision_source": decision_source,
+                    "feature_values": features,
                     "review_required": True,
                 })
 
         # Sắp xếp, giữ một vài bằng chứng có điểm tốt nhất trên mỗi chunk.
         all_findings.sort(key=lambda f: f["reranker_score"], reverse=True)
-        findings = all_findings[:200]
+        findings = group_adjacent_findings(all_findings[:200])
+        # Các ID nhóm passage chỉ dành cho UI, không phải kết luận đạo văn.
+        if settings.classifier_enabled:
+            from app.classifier import load_classifier
+            _, classifier_manifest = load_classifier()
+            classifier_version = classifier_manifest["model_version"]
+        else:
+            classifier_version = None
         report = {
-            "schema_version": 1,
+            "schema_version": 2,
             "job_id": job_id,
             "corpus_id": job["corpus_id"],
             "submission_id": job["document_key"],
@@ -745,12 +978,16 @@ def scan_document(job_id: str):
             "model": {
                 "embedding": settings.embedding_model,
                 "reranker": settings.reranker_model,
+                "classifier_version": classifier_version,
+                "detector_mode": ("classifier" if settings.classifier_enabled
+                                  else "heuristic"),
             },
             "summary": {
                 "scanned_chunks": len(query_chunks),
                 "flagged_pairs": len(all_findings),
                 "findings_returned": len(findings),
                 "matched_sources": len({f["source_key"] for f in all_findings}),
+                "passage_groups": len({f["passage_group_id"] for f in findings}),
             },
             "findings": findings,
             "disclaimer": (
@@ -970,20 +1207,23 @@ Tất cả endpoint trừ `/healthz` cần header **`X-API-Key`**. `source_id` v
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "job_id": "d13bff7f-9d84-40cf-88a9-ae70fa92d41c",
   "corpus_id": "uit-library-v1",
   "submission_id": "thesis-2026-001",
   "submission_version": 1,
   "model": {
     "embedding": "BAAI/bge-m3",
-    "reranker": "BAAI/bge-reranker-v2-m3"
+    "reranker": "BAAI/bge-reranker-v2-m3",
+    "classifier_version": "candidate-lr-v1",
+    "detector_mode": "classifier"
   },
   "summary": {
     "scanned_chunks": 35,
     "flagged_pairs": 6,
     "findings_returned": 6,
-    "matched_sources": 2
+    "matched_sources": 2,
+    "passage_groups": 4
   },
   "findings": [
     {
@@ -1003,6 +1243,18 @@ Tất cả endpoint trừ `/healthz` cần header **`X-API-Key`**. `source_id` v
       "dense_score": 0.84,
       "lexical_score": 0.31,
       "reranker_score": 0.91,
+      "classifier_score": 0.76,
+      "decision_source": "custom_classifier",
+      "submission_chunk_no": 13,
+      "source_chunk_no": 20,
+      "passage_group_id": "PG-0001",
+      "feature_values": {
+        "semantic_cosine": 0.84,
+        "reranker_score": 0.91,
+        "char_trigram_dice": 0.41,
+        "token_jaccard": 0.36,
+        "length_ratio": 0.97
+      },
       "review_required": true
     }
   ],
@@ -1010,7 +1262,7 @@ Tất cả endpoint trừ `/healthz` cần header **`X-API-Key`**. `source_id` v
 }
 ```
 
-**Lưu ý:** Đây là **JSON minh họa**, không phải kết quả benchmark. Các trường `dense_score` hoặc `lexical_score` có thể là `null` nếu ứng viên chỉ được trả về từ một nhánh tìm kiếm. Reranker score không biểu diễn xác suất vi phạm. **Không** dùng `matched_sources` như số nguồn đạo văn đã chứng minh.
+**Lưu ý:** Đây là **JSON minh họa**, không phải kết quả benchmark. Trong **bản v2**, `retrieve()` đã tính lại `dense_score`/`lexical_score` cho mọi ứng viên được chọn nên hai trường này không còn `null`. `classifier_score` cũng không phải xác suất đạo văn. Reranker score không biểu diễn xác suất vi phạm. **Không** dùng `matched_sources` như số nguồn đạo văn đã chứng minh.
 
 ## 13. Tích hợp với ASP.NET Core UGTM
 
@@ -1235,6 +1487,49 @@ docker compose exec api pytest -q tests
 
 **Chú ý:** `Dockerfile` MVP chỉ copy thư mục `app`, không copy `tests`. Để chạy lệnh pytest trên, sửa Dockerfile thành `COPY tests ./tests` **trong môi trường dev** hoặc mount `tests` vào container. Không nhất thiết đóng gói test vào image production.
 
+### `tests/test_features.py` (MỚI V2)
+
+```python
+from app.features import build_features, feature_vector, FEATURE_NAMES
+
+
+def test_feature_shape_and_bounds():
+    features = build_features("mô hình học sâu", "mạng nơ-ron học sâu", .74, .81)
+    assert list(features.keys()) == FEATURE_NAMES
+    assert len(feature_vector(features)) == 5
+    assert 0 <= features["token_jaccard"] <= 1
+    assert 0 <= features["char_trigram_dice"] <= 1
+    assert 0 <= features["length_ratio"] <= 1
+
+
+def test_identical_text_is_high_lexical():
+    f = build_features("ABC là phương pháp X", "ABC là phương pháp X", 1, 1)
+    assert f["char_trigram_dice"] == 1
+    assert f["token_jaccard"] == 1
+```
+
+### `tests/test_alignment.py` (MỚI V2)
+
+```python
+from app.alignment import group_adjacent_findings
+
+
+def test_adjacent_passages_are_grouped():
+    rows = [
+        {"source_key": "a", "source_version": 1,
+         "submission_chunk_no": 3, "source_chunk_no": 7},
+        {"source_key": "a", "source_version": 1,
+         "submission_chunk_no": 4, "source_chunk_no": 8},
+        {"source_key": "a", "source_version": 1,
+         "submission_chunk_no": 8, "source_chunk_no": 18},
+    ]
+    group_adjacent_findings(rows)
+    assert rows[0]["passage_group_id"] == rows[1]["passage_group_id"]
+    assert rows[0]["passage_group_id"] != rows[2]["passage_group_id"]
+```
+
+**Bài test hợp đồng classifier phải bổ sung khi bật training:** nếu thiếu manifest, feature schema sai, `CLASSIFIER_ENABLED=true` phải lỗi với mã rõ ràng; cùng input/features sau restart phải cho cùng inference score; dữ liệu test hoàn toàn tách khỏi group nguồn train.
+
 ### Checklist kiểm thử tích hợp (phải làm khi kết nối UGTM)
 
 | Tình huống | Mong đợi |
@@ -1254,6 +1549,199 @@ docker compose exec api pytest -q tests
 | Người ngoài nhóm/GV không được phân công | UGTM chặn xem report theo policy |
 | Nộp version mới | Tạo job mới, không ghi đè report version cũ |
 
+## 15A. Training classifier do nhóm tự xây (MỚI V2 — chỉ triển khai SAU khi pipeline chạy)
+
+### A. Định nghĩa nhãn đúng để tránh khẳng định quá mức
+
+- `label=1`: cặp đoạn **được xác nhận có tái sử dụng nội dung từ cùng nguồn** trong một tình huống kiểm thử có kiểm soát (copy, paraphrase, dịch thuật). **Không** có nghĩa "đạo văn", vì việc trích dẫn/quy định/ngoại lệ do giảng viên xem xét.
+- `label=0`: cặp đoạn **độc lập**; cần nhiều hard negatives (cùng ngành/cùng thuật ngữ/cùng định nghĩa nhưng nội dung khác), cả trường hợp có trích dẫn hợp lệ.
+- `group_id`: ID của **gia đình tài liệu nguồn** để **tất cả biến thể của cùng nguồn nằm cùng một tập** train hoặc validation hoặc test. Không chia từng hàng ngẫu nhiên.
+
+**Khởi đầu gợi ý:** 500–1.000 cặp được kiểm tra nhãn bởi thành viên nhóm; không có bảo đảm đủ cho production. Trong thời gian chờ 20–50 KLTN, tạo cặp từ tài liệu do nhóm sở hữu/quyền sử dụng và bản demo giả lập. Tránh train và đánh giá trên những biến thể gần trùng nhau bị phân tán sang train/test. Chỉ sử dụng KLTN UIT theo giấy phép thư viện; không đưa các văn bản này lên dịch vụ gán nhãn công khai nếu chưa được phép.
+
+### B. Format dữ liệu `training_data/pairs.csv`
+
+```csv
+pair_id,group_id,label,query_text,source_text
+P001,source_demo_001,1,"Hệ thống áp dụng CNN để phân loại hình ảnh.","Nghiên cứu sử dụng mạng tích chập nhận diện ảnh."
+N001,source_demo_002,0,"Mô hình CNN phân loại ảnh X-quang.","Mạng CNN được dùng phân loại ảnh vệ tinh."
+```
+
+**Hai hàng trên chỉ minh họa cấu trúc CSV, không đủ để train.** Đoạn cùng chủ đề phải được người kiểm tra xác nhận nhãn, không gán nhãn `1` chỉ dựa vào cosine. Không commit `training_data/` vào repo.
+
+### C. `training/train_classifier.py` — tạo features trên GPU, train classifier nhỏ trên CPU
+
+```python
+import argparse
+import csv
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+
+import joblib
+import numpy as np
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (precision_score, recall_score, f1_score,
+                             confusion_matrix)
+from sklearn.model_selection import GroupShuffleSplit
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+
+from app.features import (FEATURE_NAMES, FEATURE_SCHEMA,
+                          build_features, feature_vector)
+from app.models import encode_texts, rerank_pairs
+
+
+def load_pairs(path: Path):
+    with path.open(newline="", encoding="utf-8-sig") as f:
+        rows = list(csv.DictReader(f))
+    for row in rows:
+        if row.get("label") not in {"0", "1"}:
+            raise ValueError(f"Invalid label for pair {row.get('pair_id')}")
+        if not all(row.get(k) for k in ("pair_id", "group_id",
+                                       "query_text", "source_text")):
+            raise ValueError(f"Missing columns for pair {row}")
+    if len({r["group_id"] for r in rows}) < 6:
+        raise ValueError("Need more independent document groups")
+    return rows
+
+
+def build_dataset(rows, batch_size=8):
+    X = []
+    for start in range(0, len(rows), batch_size):
+        batch = rows[start:start + batch_size]
+        queries = [r["query_text"] for r in batch]
+        sources = [r["source_text"] for r in batch]
+        qvecs = encode_texts(queries, batch_size=batch_size)
+        svecs = encode_texts(sources, batch_size=batch_size)
+        rerank = rerank_pairs([[q, s] for q, s in zip(queries, sources)],
+                              batch_size=batch_size)
+        for i, row in enumerate(batch):
+            denom = float(np.linalg.norm(qvecs[i]) * np.linalg.norm(svecs[i]))
+            cosine = float(np.dot(qvecs[i], svecs[i]) / denom) if denom else 0.0
+            features = build_features(row["query_text"], row["source_text"],
+                                      cosine, float(rerank[i]))
+            X.append(feature_vector(features))
+    return np.asarray(X, dtype=np.float64)
+
+
+def require_both_classes(y, name):
+    if len(set(int(v) for v in y)) != 2:
+        raise ValueError(f"{name} needs both positive and negative labels; "
+                         "add more independent source groups")
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input", default="training_data/pairs.csv")
+    parser.add_argument("--output", default="artifacts/suspicious_passage_classifier.joblib")
+    args = parser.parse_args()
+
+    rows = load_pairs(Path(args.input))
+    X = build_dataset(rows)
+    y = np.asarray([int(r["label"]) for r in rows])
+    groups = np.asarray([r["group_id"] for r in rows])
+
+    # Hold-out TEST không đụng vào trong quá trình chọn threshold.
+    split1 = GroupShuffleSplit(n_splits=1, test_size=0.20, random_state=310)
+    trainval_idx, test_idx = next(split1.split(X, y, groups))
+    split2 = GroupShuffleSplit(n_splits=1, test_size=0.25, random_state=311)
+    inner_train, inner_val = next(split2.split(
+        X[trainval_idx], y[trainval_idx], groups[trainval_idx]
+    ))
+    train_idx = trainval_idx[inner_train]
+    val_idx = trainval_idx[inner_val]
+    for name, ids in [("train", train_idx), ("validation", val_idx),
+                      ("test", test_idx)]:
+        require_both_classes(y[ids], name)
+    assert not (set(groups[train_idx]) & set(groups[val_idx]))
+    assert not (set(groups[train_idx]) & set(groups[test_idx]))
+    assert not (set(groups[val_idx]) & set(groups[test_idx]))
+
+    clf = Pipeline([
+        ("scale", StandardScaler()),
+        ("lr", LogisticRegression(max_iter=3000, class_weight="balanced",
+                                  random_state=310)),
+    ])
+    clf.fit(X[train_idx], y[train_idx])
+    val_scores = clf.predict_proba(X[val_idx])[:, 1]
+    candidates = np.arange(0.25, 0.86, 0.05)
+    threshold = float(max(candidates, key=lambda t:
+        f1_score(y[val_idx], val_scores >= t, zero_division=0)))
+
+    test_scores = clf.predict_proba(X[test_idx])[:, 1]
+    predicted = (test_scores >= threshold).astype(int)
+    metrics = {
+        "precision": float(precision_score(y[test_idx], predicted,
+                                           zero_division=0)),
+        "recall": float(recall_score(y[test_idx], predicted,
+                                     zero_division=0)),
+        "f1": float(f1_score(y[test_idx], predicted, zero_division=0)),
+        "confusion_matrix": confusion_matrix(y[test_idx], predicted).tolist(),
+    }
+    out = Path(args.output)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(clf, out)
+    manifest = {
+        "model_version": "candidate-lr-v1",
+        "feature_schema": FEATURE_SCHEMA,
+        "feature_names": FEATURE_NAMES,
+        "embedding_model": "BAAI/bge-m3",
+        "reranker_model": "BAAI/bge-reranker-v2-m3",
+        "threshold": threshold,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "dataset_size": len(rows),
+        "group_counts": {
+            "train": len(set(groups[train_idx])),
+            "validation": len(set(groups[val_idx])),
+            "test": len(set(groups[test_idx])),
+        },
+        "test_metrics": metrics,
+        "meaning": "candidate content reuse score; not a plagiarism verdict",
+    }
+    out.with_suffix(".manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(json.dumps({"threshold": threshold, **metrics}, indent=2))
+
+
+if __name__ == "__main__":
+    main()
+```
+
+**Quan trọng:** Code trên minh họa một cách phân chia theo nhóm nguồn, nhưng với ít nhóm rất dễ có tập validation/test chỉ chứa một class và chương trình sẽ dừng. Đó là **biện pháp bảo vệ đánh giá**, không phải lỗi ngẫu nhiên nên bỏ qua. Nên tăng số nguồn đa dạng và cân bằng nhãn trong từng nhóm. Với 20–50 KLTN, chất lượng annotation quyết định tính hữu ích của classifier.
+
+**Vì sao training dùng GPU lẫn CPU?** BGE-M3/reranker trích feature trên GPU (inference), còn `LogisticRegression.fit()` là phần model **nhóm tự training trên CPU** trong thời gian ngắn. Nếu chưa có GPU, hoàn tất pipeline tổ chức dữ liệu và unit tests trước, hoặc tạm dùng cấu hình mô hình nhẹ hơn có khả năng chạy CPU để thử luồng; không sử dụng features từ model A để đánh giá như features của model B.
+
+### D. Cách chạy training
+
+```bash
+# Trong virtualenv có requirements và CUDA tương thích:
+# Chạy tại root repo, sau khi chuẩn bị pairs.csv với nhãn đã kiểm tra.
+python -m training.train_classifier \
+  --input training_data/pairs.csv \
+  --output artifacts/suspicious_passage_classifier.joblib
+
+# Kiểm tra hai artifact xuất hiện:
+ls artifacts/suspicious_passage_classifier.joblib \
+   artifacts/suspicious_passage_classifier.manifest.json
+
+# Sau khi kiểm thử và được chấp thuận, chỉnh .env:
+# CLASSIFIER_ENABLED=true
+# CLASSIFIER_PATH=/artifacts/suspicious_passage_classifier.joblib
+# Sau đó restart docker compose worker
+```
+
+`training_data/`, `artifacts/` không commit vào GitHub. Có thể giữ artifact được ký/hash trên kho nội bộ; track `model_version` và `feature_schema` trong mỗi report để tránh không thể tái lập kết quả khi thay model.
+
+### E. Các chỉ tiêu trước khi cho phép bật classifier
+
+- Test theo **group** độc lập với train/validation; phải có đủ nhãn dương/âm.
+- So sánh với heuristic và pipeline **không classifier** trên **cùng tập test**; cải thiện một chỉ số không được đánh đổi bằng false-positive quá cao.
+- Kiểm tra case sao chép nguyên văn, paraphrase, Việt–Anh, hard negatives, phần lý thuyết chung; thử version mới không làm mất khả năng tìm nguồn (retrieval Recall@K).
+- Không dùng kết quả `test` để chọn threshold hay sửa lại mô hình. Nếu muốn lặp lại thử nghiệm, giữ một holdout khác chưa sử dụng.
+- Bật feature flag sau khi kiểm thử kết quả và thời gian inference; có rollback `CLASSIFIER_ENABLED=false` tức thì mà không thay đổi API.
+
 ## 16. Dữ liệu 20–50 khóa luận từ thư viện UIT
 
 ### Cần xin thư viện những gì?
@@ -1267,6 +1755,7 @@ docker compose exec api pytest -q tests
 ### Cách chuẩn bị trước khi có dữ liệu
 
 - Dùng 5–10 tài liệu do nhóm tự tạo hoặc có giấy phép cho phép lập chỉ mục.
+- **Hai bộ dữ liệu khác nhau:** `corpus` 20–50 KLTN để **truy tìm nguồn**; `training_data/pairs.csv` là **cặp đoạn có nhãn** để train classifier. Không tự suy luận rằng "50 tài liệu = 50 mẫu train".
 - Tạo 3 nhóm test: `EXACT_COPY`, `PARAPHRASE`, `UNRELATED_SAME_TOPIC` và một số cặp Việt–Anh.
 - Giữ bảng test đơn giản (`test_id, source_id, submission_id, expected_source, note`) để demo với thầy.
 - Chỉ số cần quan sát: nguồn nào được tìm thấy trong top-K, vị trí đoạn, cảnh báo giả, thời gian index một PDF và scan một PDF.
@@ -1304,9 +1793,12 @@ docker compose exec api pytest -q tests
 | 2 | Parser + chunking + BGE-M3 indexing | Index được 5 PDF/DOCX mẫu, có chunks/vectors |
 | 3 | Dense search + pg_trgm + RRF + reranker | Test copy/paraphrase tìm được nguồn và trả JSON evidence |
 | 4 | .NET integration + React view + quyền | Nộp bài UGTM → AI queued → completed → giảng viên xem |
-| 5 (nếu có) | Dữ liệu thư viện, chuẩn hóa, test hiệu năng, xử lý false positives | Nhập 20–50 KLTN được phép và demo end-to-end |
+| 5 | Passage alignment + quy chuẩn report + dữ liệu thư viện | Nhóm findings liền kề; nhập 20–50 KLTN được phép, đo lỗi giả |
+| 6 (giai đoạn B) | Chuẩn bị pairs có nhãn và feature engineering | `pairs.csv`, bộ test theo group, train/test tách nguồn |
+| 7 (giai đoạn B) | Train CPU classifier + validate + feature flag | Xuất `.joblib` + manifest, test không leakage, có rollback |
+| 8 (nếu đủ thời gian) | Teacher feedback + so sánh trước/sau classifier | Demo thêm model nhóm tự train và phân tích trường hợp fail |
 
-**Tiêu chí báo cáo với thầy:** Không trình bày đây là “AI tự kết luận đạo văn”. Hãy demo ba case: **copy nguyên văn**, **diễn đạt lại**, **cùng chủ đề nhưng độc lập**; trình bày rõ vì sao lexical và semantic bổ sung nhau, chứng minh trace được nguồn và giảng viên có quyền đánh giá.
+**Tiêu chí báo cáo với thầy:** Phân biệt **"pretrained retrieval/reranker"** và **"custom trained classifier"**. Thể hiện artifact, feature pipeline nhất quán, số lượng mẫu tự gán nhãn, phân chia theo nguồn, metrics so với heuristic (kể cả nếu model không tốt hơn). Không trình bày đây là “AI tự kết luận đạo văn”. Hãy demo ba case: **copy nguyên văn**, **diễn đạt lại**, **cùng chủ đề nhưng độc lập**; trình bày rõ vì sao lexical và semantic bổ sung nhau, chứng minh trace được nguồn và giảng viên có quyền đánh giá.
 
 ## 19. Rủi ro và quyết định cần chốt khi bắt tay vào code
 
@@ -1319,8 +1811,75 @@ docker compose exec api pytest -q tests
 | PDF scan | Báo lỗi `EMPTY_TEXT` | Khi bổ sung OCR |
 | Có nhiều phiên bản cùng nguồn | Chỉ latest indexed là active | Cần quản trị version cụ thể/audit |
 | Có AI score cao | Chỉ `review_required`, GV thẩm định | Khi có quy chế/nhãn dữ liệu để hiệu chỉnh |
+| Chưa có classifier được đánh giá | `CLASSIFIER_ENABLED=false`, pipeline heuristic vẫn hoạt động | Khi có đủ nhãn và artifact qua test |
+| Classifier model/feature drift | Ghi `feature_schema`, `embedding_model`, `reranker_model`, `model_version` | Khi model thay đổi phải regenerate features và huấn luyện lại |
 | Quyền xem khóa luận nguồn | Chỉ giảng viên được cấp quyền ở UGTM | Theo thỏa thuận thư viện |
 | Schema/vector model đổi | Re-index corpus theo model/version | Khi cập nhật embedding model |
+
+## 19A. Kế hoạch cập nhật repo UGTM thực tế (C# + React; chỉ là mapping đề xuất)
+
+**KHÔNG sửa trực tiếp code trong repository do chưa đọc được source (GitHub 404).** Trước khi tạo PR, hãy tìm trong UGTM các điểm nối tương ứng (không tự suy diễn tên file/class):
+
+1. **Submission finalized** trong module Thesis/Documents: sau khi transaction lưu báo cáo thành công, phát integration event kiểu `ThesisReportSubmitted` với `submission_id`, `version`, `file_reference`, `corpus_id`. Dùng outbox nếu đã có; không tạo request AI trong transaction upload.
+2. **Integrity.Application handler**: gọi `POST /api/v1/scans` qua typed `HttpClient` có `X-API-Key`; nhận `job_id`; lưu bảng trong schema `integrity` phía UGTM: `submission_id`, `version`, `ai_job_id`, `status`, `detector_mode`, `classifier_version`, `report_snapshot`, `updated_at`.
+3. **Background reconciliation**: định kỳ hỏi `GET /api/v1/jobs/{id}`. Nếu `completed`, lấy `GET /api/v1/reports/{id}`. Nếu `failed`, log mã lỗi và cho Admin retry theo chính sách; bài nộp vẫn hợp lệ.
+4. **Authorization**: endpoint UI `GET /api/theses/{id}/similarity-report?version=...` áp dụng RBAC + Policy-based Authorization; chỉ đúng GVHD/GVPB/Khoa được cấp quyền xem đoạn nguồn, không lộ report qua URL public hay JWT browser đến FastAPI.
+5. **React**: hiển thị `Queued/Processing/Completed/Failed`; nhóm theo `passage_group_id`, hiển thị bản nộp cạnh bản nguồn (nếu có quyền), `decision_source`, các score và `classifier_version` dưới mục kỹ thuật; có thao tác GV `Needs review / Reviewed: accepted / Reviewed: rejected` lưu trong UGTM.
+6. **Bổ sung kiểm thử contract**: `POST` cùng `submission_id/version/bytes` là idempotent, thay version có report riêng; AI fail/timeout không làm thất bại upload; quyền GV khác không xem được report; bật/tắt classifier không phá vỡ JSON contract.
+
+**Quy tắc đổi phiên bản:** `submission_version` là phiên bản báo cáo; `classifier_version` là phiên bản model do nhóm train; `corpus_revision` là snapshot tài liệu nguồn. Chúng không thay thế nhau. Nếu cần quét lại cùng báo cáo với model mới, nên thêm `scan_run`/`analysis_version` hoặc `rescan` có quyền; không ghi đè job cũ bằng cách dùng lại `submission_version`.
+
+### Hợp đồng dữ liệu cần giữ ổn định
+
+```json
+{
+  "schema_version": 2,
+  "submission_id": "thesis-demo-001",
+  "submission_version": 1,
+  "model": {
+    "embedding": "BAAI/bge-m3",
+    "reranker": "BAAI/bge-reranker-v2-m3",
+    "detector_mode": "classifier",
+    "classifier_version": "candidate-lr-v1"
+  },
+  "summary": {
+    "scanned_chunks": 42,
+    "findings_returned": 8,
+    "matched_sources": 3,
+    "passage_groups": 4
+  },
+  "findings": [{
+    "source_key": "source_demo_01",
+    "source_page": 9,
+    "submission_page": 12,
+    "passage_group_id": "PG-0001",
+    "dense_score": 0.78,
+    "lexical_score": 0.47,
+    "reranker_score": 0.83,
+    "classifier_score": 0.74,
+    "decision_source": "custom_classifier",
+    "review_required": true
+  }],
+  "disclaimer": "Similarity evidence only; not a plagiarism verdict."
+}
+```
+
+**Mã JSON là minh họa, không phải benchmark.** `schema_version:2` là hợp đồng API v2 của code trong tài liệu; khi triển khai, .NET và React phải dùng cùng schema. Cùng một hợp đồng JSON sử dụng `classifier_version: null` khi feature flag OFF.
+
+## 19B. Definition of Done (MVP + giai đoạn B)
+
+| Hạng mục | Kiểm thử/tiêu chí chấp nhận |
+|---|---|
+| File + API | PDF/DOCX hợp lệ nhận `202`; file sai/oversize bị từ chối; job trả trạng thái rõ |
+| Indexing | Nguồn đã có vector; re-index cùng source/version không nhân đôi; nguồn chưa active không được tìm |
+| Retrieval | Test copy chính xác và paraphrase tìm đúng `source_key` trong top-K trên corpus demo |
+| Passage grouping | Hai hit liên tiếp theo source/query cùng group, hit xa khác group |
+| Classifier OFF | Scan vẫn hoàn thành, `detector_mode=heuristic`, `classifier_score=null` |
+| Feature parity | Cùng cặp đầu vào tính feature y hệt lúc train và inference; 5 feature tên/độ dài chính xác |
+| Classifier ON | File `.joblib` + manifest hợp lệ; trả score/version; thiếu artifact hoặc schema mismatch fail, không tự tắt |
+| Evaluation | Có bảng so sánh heuristic vs classifier (precision, recall, F1, false positives) trên cùng held-out groups |
+| Privacy | Không commit nguồn thật vào GitHub, không public AI API, học liệu chỉ được lưu/index trong phạm vi phép |
+| UGTM integration | Upload vẫn thành công nếu AI lỗi; FE chỉ gọi .NET; GV đúng quyền xem evidence |
 
 ## 20. Nguồn kỹ thuật tham khảo
 
@@ -1334,10 +1893,12 @@ Các nguồn dưới đây là **tham khảo kỹ thuật bên ngoài**, không 
 - FastAPI upload: <https://fastapi.tiangolo.com/tutorial/request-files/>
 - Celery user guide: <https://docs.celeryq.dev/en/stable/userguide/index.html>
 - Docker Compose GPU: <https://docs.docker.com/compose/how-tos/gpu-support/>
+- scikit-learn LogisticRegression: <https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LogisticRegression.html>
+- scikit-learn GroupShuffleSplit: <https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.GroupShuffleSplit.html>
 - UGTM (đường dẫn do nhóm cung cấp, chưa mở được qua kết nối hiện tại): <https://github.com/karasuma-2401/UGTM>
 
 ---
 
 ### Kết luận
 
-**Bắt đầu bằng repo `UGTM-Plagiarism-AI` chạy riêng trên GPU, 4 endpoint nội bộ, 2 background tasks, PostgreSQL+pgvector và pipeline Hybrid Search + Reranking.** Sau khi demo độc lập ổn định, kết nối vào **luồng nộp báo cáo cuối kỳ** của UGTM qua background event handler. Tiếp nhận corpus 20–50 khóa luận từ thư viện bằng pipeline indexing riêng, giữ nguyên cơ chế bảo mật/quyền xem của hệ thống trường. Ưu tiên chức năng **tìm nguồn và giải thích bằng chứng**, không tạo “tỷ lệ đạo văn” thiếu cơ sở.
+**Bắt đầu bằng repo `UGTM-Plagiarism-AI` gồm 4 endpoint nội bộ, 2 background tasks, PostgreSQL+pgvector và pipeline Hybrid Search + Reranking + Passage Alignment.** GPU có thể bổ sung khi nhóm xin/thuê được; tập trung code giao diện và nghiệp vụ độc lập trước. **Tiếp theo mới train classifier trên cặp đoạn có nhãn, xuất model/manifest, bật bằng feature flag và kiểm thử trước/sau.** Sau khi demo độc lập ổn định, kết nối vào **luồng nộp báo cáo cuối kỳ** của UGTM qua background event handler. Tiếp nhận corpus 20–50 khóa luận từ thư viện bằng pipeline indexing riêng, giữ nguyên cơ chế bảo mật/quyền xem của hệ thống trường. Ưu tiên chức năng **tìm nguồn và giải thích bằng chứng**, không tạo “tỷ lệ đạo văn” thiếu cơ sở.

@@ -4,7 +4,8 @@ from app.db import connect
 
 
 def vector_literal(vector) -> str:
-    return json.dumps([float(value) for value in vector], separators=(",", ":"))
+    # Cast ::vector ở SQL; không dựng câu SQL bằng nối chuỗi.
+    return json.dumps([float(x) for x in vector], separators=(",", ":"))
 
 
 def retrieve(
@@ -69,9 +70,33 @@ def retrieve(
             score_key = f"{branch}_score"
             item[score_key] = float(row[score_key])
 
-    return sorted(
-        merged.values(),
-        key=lambda item: item["rrf_score"],
-        reverse=True,
+    # Chốt score từ CẢ HAI phương pháp trên TỪNG ứng viên, không giữ NULL
+    # chỉ vì candidate được tìm thấy bởi một nhánh. Điều này quan trọng
+    # để vector feature lúc train và inference cùng một định nghĩa.
+    selected = sorted(
+        merged.values(), key=lambda x: x["rrf_score"], reverse=True
     )[:fused_k]
+    if not selected:
+        return []
 
+    ids = [int(x["chunk_id"]) for x in selected]
+    with connect() as con:
+        scores = con.execute(
+            """
+            SELECT id,
+                   1 - (embedding <=> %s::vector) AS dense_score,
+                   similarity(content, %s) AS lexical_score,
+                   chunk_no
+            FROM integrity.chunks
+            WHERE id = ANY(%s::bigint[])
+            """,
+            (vector, query_text, ids),
+        ).fetchall()
+
+    score_by_id = {row["id"]: row for row in scores}
+    for item in selected:
+        row = score_by_id[item["chunk_id"]]
+        item["dense_score"] = float(row["dense_score"])
+        item["lexical_score"] = float(row["lexical_score"])
+        item["source_chunk_no"] = int(row["chunk_no"])
+    return selected
