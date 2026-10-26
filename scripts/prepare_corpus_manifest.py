@@ -6,6 +6,7 @@ import argparse
 import csv
 import hashlib
 import json
+import re
 import shutil
 import zipfile
 from collections import Counter
@@ -14,6 +15,10 @@ from pathlib import Path
 import pymupdf
 from docx import Document
 
+from app.documents import (
+    extract_document_metadata,
+    is_duplicate_document,
+)
 
 MANIFEST_FIELDS = (
     "source_key",
@@ -27,6 +32,7 @@ MANIFEST_FIELDS = (
     "status",
     "reason",
 )
+SAFE_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 
 
 def sha256(path: Path) -> str:
@@ -94,7 +100,7 @@ def copy_to_staging(source: Path, destination: Path) -> None:
 
 
 def build_manifest(
-    input_dir: Path,
+    input_dirs: list[Path],
     staging_dir: Path,
     manifest_path: Path,
     corpus_id: str,
@@ -102,19 +108,32 @@ def build_manifest(
     key_prefix: str,
     max_upload_mb: int,
 ) -> Counter:
-    if not input_dir.is_dir():
-        raise NotADirectoryError(f"Input directory does not exist: {input_dir}")
+    if not input_dirs:
+        raise ValueError("At least one input directory is required")
+    for input_dir in input_dirs:
+        if not input_dir.is_dir():
+            raise NotADirectoryError(
+                f"Input directory does not exist: {input_dir}"
+            )
     if version < 1:
         raise ValueError("version must be positive")
+    if max_upload_mb < 1:
+        raise ValueError("max_upload_mb must be positive")
+    if not SAFE_KEY.fullmatch(corpus_id):
+        raise ValueError("corpus_id must use letters, digits, hyphens or underscores")
+    if not SAFE_KEY.fullmatch(key_prefix):
+        raise ValueError("key_prefix must use letters, digits, hyphens or underscores")
 
     staging_dir.mkdir(parents=True, exist_ok=True)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     max_upload_bytes = max_upload_mb * 1024 * 1024
     seen_hashes: dict[str, str] = {}
+    ready_metas: dict[str, dict[str, str]] = {}
     rows: list[dict[str, str | int]] = []
 
     candidates = sorted(
         path
+        for input_dir in input_dirs
         for path in input_dir.rglob("*")
         if path.is_file() and path.suffix.lower() in {".pdf", ".docx"}
     )
@@ -126,12 +145,31 @@ def build_manifest(
         page_count, text_length, status, reason = inspect_file(
             path, max_upload_bytes
         )
+
         if file_hash in seen_hashes:
             status = "duplicate"
-            reason = f"DUPLICATE_OF:{seen_hashes[file_hash]}"
-        else:
-            seen_hashes[file_hash] = source_key
-            if status == "ready":
+            reason = f"DUPLICATE_SHA256_OF:{seen_hashes[file_hash]}"
+        elif status == "ready":
+            try:
+                meta = extract_document_metadata(path)
+                dup_key = None
+                dup_reason = ""
+                for prev_key, prev_meta in ready_metas.items():
+                    is_dup, d_reason = is_duplicate_document(meta, prev_meta)
+                    if is_dup:
+                        dup_key = prev_key
+                        dup_reason = d_reason
+                        break
+                if dup_key is not None:
+                    status = "duplicate"
+                    reason = f"DUPLICATE_METADATA_OF:{dup_key}:{dup_reason}"
+                else:
+                    ready_metas[source_key] = meta
+                    seen_hashes[file_hash] = source_key
+                    copy_to_staging(path, staging_dir / staged_filename)
+            except Exception as e:
+                # If metadata extraction fails unexpectedly, keep as ready
+                seen_hashes[file_hash] = source_key
                 copy_to_staging(path, staging_dir / staged_filename)
 
         rows.append(
@@ -158,7 +196,13 @@ def build_manifest(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input-dir", type=Path, required=True)
+    parser.add_argument(
+        "--input-dir",
+        type=Path,
+        action="append",
+        required=True,
+        help="Approved source directory. Repeat this option to combine folders.",
+    )
     parser.add_argument("--staging-dir", type=Path, required=True)
     parser.add_argument("--manifest-out", type=Path, required=True)
     parser.add_argument("--corpus-id", default="uit-library-v1")
@@ -168,7 +212,7 @@ def main() -> None:
     args = parser.parse_args()
 
     summary = build_manifest(
-        input_dir=args.input_dir,
+        input_dirs=args.input_dir,
         staging_dir=args.staging_dir,
         manifest_path=args.manifest_out,
         corpus_id=args.corpus_id,
@@ -181,9 +225,11 @@ def main() -> None:
             {
                 "manifest": str(args.manifest_out),
                 "staging": str(args.staging_dir),
+                "input_directories": [str(path) for path in args.input_dir],
                 "summary": dict(summary),
             },
-            ensure_ascii=False,
+            # Windows terminals may still use cp1252; keep CLI output portable.
+            ensure_ascii=True,
         )
     )
 

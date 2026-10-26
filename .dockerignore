@@ -8,6 +8,8 @@ artifacts
 training_data
 training_runs
 kaggle_bundle
+kaggle_bundle.zip
+kaggle_pairs_demo.zip
 corpus_staging
 data
 *.joblib

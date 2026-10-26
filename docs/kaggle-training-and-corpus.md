@@ -20,7 +20,8 @@ Kaggle tách quyền của Notebook và Dataset; cả hai phải được để 
 
    ```powershell
    .\.venv\Scripts\python.exe -m scripts.prepare_corpus_manifest `
-     --input-dir D:\UGTM-secure\approved-theses `
+     --input-dir D:\UGTM-secure\approved-theses-1 `
+     --input-dir D:\UGTM-secure\approved-theses-2 `
      --staging-dir .\corpus_staging `
      --manifest-out .\data\corpus_manifest.csv `
      --corpus-id uit-library-v1 `
