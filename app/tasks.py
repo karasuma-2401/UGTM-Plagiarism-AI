@@ -9,7 +9,6 @@ from app.config import settings
 from app.db import connect, get_job, set_status
 from app.documents import extract_pages, make_chunks
 from app.features import build_features
-from app.models import encode_texts, rerank_pairs
 from app.search import retrieve, vector_literal
 
 logger = logging.getLogger(__name__)
@@ -24,6 +23,8 @@ def parse_job(job):
 
 @celery_app.task(name="app.tasks.index_source")
 def index_source(job_id: str):
+    from app.models import encode_texts
+
     set_status(job_id, "processing")
     try:
         job = get_job(job_id)
@@ -111,6 +112,8 @@ def index_source(job_id: str):
 
 @celery_app.task(name="app.tasks.scan_document")
 def scan_document(job_id: str):
+    from app.models import encode_texts, rerank_pairs
+
     set_status(job_id, "processing")
     try:
         job = get_job(job_id)

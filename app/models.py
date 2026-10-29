@@ -7,28 +7,31 @@ from FlagEmbedding import BGEM3FlagModel, FlagReranker
 from app.config import settings
 
 
-def assert_gpu():
-    if not torch.cuda.is_available():
-        raise RuntimeError("GPU CUDA is required by this configuration")
+def get_device():
+    return "cuda:0" if torch.cuda.is_available() else "cpu"
 
 
 @lru_cache(maxsize=1)
 def embedder():
-    assert_gpu()
+    device = get_device()
+    use_fp16 = device.startswith("cuda")
+    devices = [device] if device.startswith("cuda") else None
     return BGEM3FlagModel(
         settings.embedding_model,
-        use_fp16=True,
-        devices=["cuda:0"],
+        use_fp16=use_fp16,
+        devices=devices,
     )
 
 
 @lru_cache(maxsize=1)
 def reranker():
-    assert_gpu()
+    device = get_device()
+    use_fp16 = device.startswith("cuda")
+    devices = [device] if device.startswith("cuda") else None
     return FlagReranker(
         settings.reranker_model,
-        use_fp16=True,
-        devices=["cuda:0"],
+        use_fp16=use_fp16,
+        devices=devices,
     )
 
 
