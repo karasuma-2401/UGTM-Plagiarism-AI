@@ -36,6 +36,7 @@ services:
       CLASSIFIER_PATH: ${CLASSIFIER_PATH:-/artifacts/suspicious_passage_classifier.joblib}
     volumes:
       - uploads:/data
+      - ./app:/service/app:ro
     depends_on:
       db:
         condition: service_healthy
@@ -48,6 +49,7 @@ services:
     environment: *ai_env
     volumes:
       - uploads:/data
+      - ./app:/service/app:ro
       - models:/models
       - ./artifacts:/artifacts:ro
     depends_on:
