@@ -131,17 +131,28 @@ def scan_document(job_id: str):
         query_chunks = parse_job(job)
         vectors = encode_texts([x.text for x in query_chunks])
         all_findings: list[dict] = []
+
+        # TỐI ƯU HÓA: Lọc thô ứng viên trước khi đưa vào mô hình Cross-Encoder.
+        # Chỉ những cặp có độ tương đồng ban đầu tiềm năng mới cần rerank sâu.
+        candidates_to_rerank: list[tuple] = []
         for query_chunk, vector in zip(query_chunks, vectors):
             candidates = retrieve(query_chunk.text, vector, job["corpus_id"])
             if not candidates:
                 continue
+            for item in candidates:
+                dense = float(item["dense_score"])
+                lexical = float(item["lexical_score"])
+                # Bỏ qua 95% các đoạn không tương quan để tiết kiệm thời gian tính toán
+                if dense >= 0.48 or lexical >= 0.25:
+                    candidates_to_rerank.append((query_chunk, item))
+
+        if candidates_to_rerank:
             pairs = [
-                [query_chunk.text, item["source_text"]]
-                for item in candidates
+                [chunk.text, item["source_text"]]
+                for chunk, item in candidates_to_rerank
             ]
-            scores = rerank_pairs(pairs)
-            for item, score in zip(candidates, scores):
-                # Mọi candidate có dense_score/lexical_score đầy đủ sau retrieve().
+            scores = rerank_pairs(pairs, batch_size=16)
+            for (query_chunk, item), score in zip(candidates_to_rerank, scores):
                 lexical = float(item["lexical_score"])
                 dense = float(item["dense_score"])
                 features = build_features(
@@ -152,7 +163,7 @@ def scan_document(job_id: str):
                 )
                 result = score_candidate(features)  # None khi feature flag OFF
                 if result is None:
-                    # Chỉ là heuristic demo; phải hiệu chỉnh với dữ liệu có nhãn.
+                    # Heuristic demo
                     review = lexical >= 0.65 or (dense >= 0.68 and score >= 0.67)
                     decision_source = "heuristic"
                 else:

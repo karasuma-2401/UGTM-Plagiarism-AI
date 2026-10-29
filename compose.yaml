@@ -34,9 +34,12 @@ services:
       HF_HOME: /models
       CLASSIFIER_ENABLED: ${CLASSIFIER_ENABLED:-false}
       CLASSIFIER_PATH: ${CLASSIFIER_PATH:-/artifacts/suspicious_passage_classifier.joblib}
+      REMOTE_GPU_URL: ${REMOTE_GPU_URL:-}
     volumes:
       - uploads:/data
       - ./app:/service/app:ro
+      - ./artifacts:/artifacts:ro
+      - ./frontend/dist:/service/frontend/dist:ro
     depends_on:
       db:
         condition: service_healthy
@@ -50,6 +53,8 @@ services:
     volumes:
       - uploads:/data
       - ./app:/service/app:ro
+      - ./artifacts:/artifacts:ro
+      - ./frontend/dist:/service/frontend/dist:ro
       - models:/models
       - ./artifacts:/artifacts:ro
     depends_on:

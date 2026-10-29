@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
     classifier_enabled: bool = False
     classifier_path: Path = Path("/artifacts/suspicious_passage_classifier.joblib")
+    remote_gpu_url: str | None = None
 
 
 settings = Settings()
