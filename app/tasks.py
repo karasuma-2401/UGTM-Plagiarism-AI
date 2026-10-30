@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 def parse_job(job):
     from pathlib import Path
-    from app.documents import extract_pages, make_chunks
+    from app.preprocessing import prepare_document_chunks
     from app.storage import download_to_temp_file
 
     with download_to_temp_file(
@@ -21,9 +21,16 @@ def parse_job(job):
         expected_sha256=job.get("file_sha256"),
         suffix=Path(job.get("filename", "")).suffix,
     ) as temp_path:
-        chunks = make_chunks(extract_pages(str(temp_path)))
+        chunks, stats = prepare_document_chunks(str(temp_path))
         if not chunks:
             raise ValueError("EMPTY_TEXT")
+        logger.info(
+            "Parsed job %s: %d chunks generated (kept_blocks=%d, dropped_blocks=%d)",
+            job.get("id"),
+            len(chunks),
+            stats.kept_blocks,
+            stats.dropped_blocks,
+        )
         return chunks
 
 

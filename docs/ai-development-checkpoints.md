@@ -85,7 +85,7 @@ Mẫu execution log:
   - Đầu ra: parser version mới, fixtures và regression tests.
   - Hoàn tất khi: body không mất vì cover; đoạn evidence ánh xạ được về vị trí gốc; lỗi/trang thiếu text không bị báo thành “không có trùng lặp”.
 
-- [ ] **CP-02.2 — Thống nhất section filtering và chunking.**
+- [x] **CP-02.2 — Thống nhất section filtering và chunking.**
   - Làm: dùng chung cấu hình annotation/index/scan, áp dụng lọc ở mức block; giữ metadata section và lý do loại; thêm sentence/paragraph chunker bên cạnh baseline 90/20. Version config và reindex vào corpus version mới khi cần.
   - Đầu ra: preprocessing config, thống kê trước/sau lọc và tests cho PDF/DOCX.
   - Hoàn tất khi: cùng input/config tạo cùng chunks giữa offline và online; loại boilerplate không loại nhầm cả tài liệu; vẫn tái chạy được B0.

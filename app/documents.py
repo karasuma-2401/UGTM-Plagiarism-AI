@@ -526,14 +526,292 @@ def extract_pages(path: str | Path) -> list[TextPage]:
     raise ValueError("Only PDF and DOCX are supported")
 
 
+def _map_blocks_to_chunk(
+    page: TextPage,
+    start: int,
+    end: int,
+    chunk_no: int,
+    chunk_text: str,
+    chunk_section: str,
+) -> Chunk:
+    start_block_idx: int | None = None
+    end_block_idx: int | None = None
+    start_para_idx: int | None = None
+    end_para_idx: int | None = None
+    page_start: int | None = page.page_number
+    page_end: int | None = page.page_number
+    mapping_records: list[dict[str, Any]] = []
+
+    if page.blocks:
+        overlapping = [
+            b
+            for b in page.blocks
+            if max(start, b.start_char_offset) < min(end, b.end_char_offset)
+        ]
+        if not overlapping:
+            overlapping = [min(page.blocks, key=lambda b: abs(b.start_char_offset - start))]
+
+        start_block_idx = overlapping[0].block_index
+        end_block_idx = overlapping[-1].block_index
+
+        para_indices = [b.paragraph_index for b in overlapping if b.paragraph_index is not None]
+        if para_indices:
+            start_para_idx = min(para_indices)
+            end_para_idx = max(para_indices)
+
+        page_nums = [b.page_number for b in overlapping if b.page_number is not None]
+        if page_nums:
+            page_start = min(page_nums)
+            page_end = max(page_nums)
+
+        mapping_records = [b.to_mapping_dict() for b in overlapping]
+
+    return Chunk(
+        chunk_no=chunk_no,
+        page_number=page.page_number,
+        start_offset=start,
+        end_offset=end,
+        text=chunk_text,
+        section_type=chunk_section,
+        start_block_index=start_block_idx,
+        end_block_index=end_block_idx,
+        start_paragraph_index=start_para_idx,
+        end_paragraph_index=end_para_idx,
+        page_start=page_start,
+        page_end=page_end,
+        block_mapping=mapping_records,
+    )
+
+
+ABBR_RE = re.compile(
+    r"\b(?:TP|ThS|TS|PGS|GS|GVHD|KS|CN|al|vol|no|fig|tab|e\.g|i\.e|v\.v)\.",
+    re.I,
+)
+
+
+def split_sentences(text: str) -> list[tuple[int, int, str]]:
+    """Split text into sentences returning (start_offset, end_offset, sentence_text).
+    Protects scientific, Vietnamese, and common abbreviations from false splits.
+    """
+    if not text.strip():
+        return []
+
+    abbr_spans = {m.end() for m in ABBR_RE.finditer(text)}
+    decimal_spans = {m.start() + 1 for m in re.finditer(r"\d\.\d", text)}
+    protected_dots = abbr_spans | decimal_spans
+
+    cand_spans = list(re.finditer(r"([.!?]+)(\s+)(?=[A-ZÀ-Ỹ0-9]|$)", text))
+    boundaries = [0]
+    for m in cand_spans:
+        if m.end(1) not in protected_dots:
+            boundaries.append(m.end())
+    boundaries.append(len(text))
+    boundaries = sorted(set(boundaries))
+
+    sentences = []
+    for i in range(len(boundaries) - 1):
+        start = boundaries[i]
+        end = boundaries[i + 1]
+        s_text = text[start:end].strip()
+        if s_text:
+            sentences.append((start, end, s_text))
+    return sentences
+
+
+def make_sentence_chunks(
+    pages: list[TextPage],
+    target_words: int = 90,
+    overlap_sentences: int = 1,
+    min_words: int = 8,
+    max_words: int = 140,
+    exclude_sections: set[str] | tuple[str, ...] | None = None,
+) -> list[Chunk]:
+    """Generate chunks respecting complete sentence boundaries."""
+    excluded = set(exclude_sections) if exclude_sections else set()
+    result: list[Chunk] = []
+    chunk_no = 0
+
+    for page in pages:
+        if page.section_type in excluded:
+            continue
+
+        sentences = split_sentences(page.text)
+        if not sentences:
+            continue
+
+        sent_words = [len(s[2].split()) for s in sentences]
+        i = 0
+        n = len(sentences)
+
+        while i < n:
+            curr_words = 0
+            j = i
+            while j < n:
+                w = sent_words[j]
+                if curr_words > 0 and (curr_words + w > max_words):
+                    break
+                curr_words += w
+                j += 1
+                if curr_words >= target_words:
+                    break
+
+            if curr_words < min_words and result:
+                break
+
+            start = sentences[i][0]
+            end = sentences[j - 1][1]
+            chunk_text = page.text[start:end].strip()
+
+            chunk_obj = _map_blocks_to_chunk(
+                page=page,
+                start=start,
+                end=end,
+                chunk_no=chunk_no,
+                chunk_text=chunk_text,
+                chunk_section=page.section_type,
+            )
+            result.append(chunk_obj)
+            chunk_no += 1
+
+            if j >= n:
+                break
+
+            step = max(1, (j - i) - overlap_sentences)
+            i += step
+
+    return result
+
+
+def make_paragraph_chunks(
+    pages: list[TextPage],
+    target_words: int = 90,
+    min_words: int = 8,
+    max_words: int = 150,
+    exclude_sections: set[str] | tuple[str, ...] | None = None,
+) -> list[Chunk]:
+    """Generate chunks respecting structural paragraph boundaries."""
+    excluded = set(exclude_sections) if exclude_sections else set()
+    result: list[Chunk] = []
+    chunk_no = 0
+
+    for page in pages:
+        if page.section_type in excluded:
+            continue
+
+        blocks = [b for b in page.blocks if b.section_type not in excluded and b.text.strip()]
+        if not blocks:
+            page_chunks = make_sentence_chunks(
+                [page],
+                target_words=target_words,
+                overlap_sentences=1,
+                min_words=min_words,
+                max_words=max_words,
+                exclude_sections=excluded,
+            )
+            for c in page_chunks:
+                c.chunk_no = chunk_no
+                result.append(c)
+                chunk_no += 1
+            continue
+
+        i = 0
+        n = len(blocks)
+        while i < n:
+            curr_words = 0
+            j = i
+            while j < n:
+                b_words = len(blocks[j].text.split())
+                if curr_words > 0 and (curr_words + b_words > max_words):
+                    break
+                curr_words += b_words
+                j += 1
+                if curr_words >= target_words:
+                    break
+
+            # If a single paragraph is excessively long, sub-chunk it via sentence window
+            if j == i + 1 and curr_words > max_words:
+                single_block_page = TextPage(
+                    page_number=page.page_number,
+                    text=blocks[i].text,
+                    section_type=blocks[i].section_type,
+                    blocks=[blocks[i]],
+                )
+                sub_chunks = make_sentence_chunks(
+                    [single_block_page],
+                    target_words=target_words,
+                    min_words=min_words,
+                    max_words=max_words,
+                )
+                for sc in sub_chunks:
+                    sc.chunk_no = chunk_no
+                    sc.start_offset += blocks[i].start_char_offset
+                    sc.end_offset += blocks[i].start_char_offset
+                    sc.start_block_index = blocks[i].block_index
+                    sc.end_block_index = blocks[i].block_index
+                    sc.start_paragraph_index = blocks[i].paragraph_index
+                    sc.end_paragraph_index = blocks[i].paragraph_index
+                    result.append(sc)
+                    chunk_no += 1
+                i += 1
+                continue
+
+            if curr_words < min_words and result:
+                break
+
+            start = blocks[i].start_char_offset
+            end = blocks[j - 1].end_char_offset
+            chunk_text = page.text[start:end].strip()
+
+            chunk_obj = _map_blocks_to_chunk(
+                page=page,
+                start=start,
+                end=end,
+                chunk_no=chunk_no,
+                chunk_text=chunk_text,
+                chunk_section=page.section_type,
+            )
+            result.append(chunk_obj)
+            chunk_no += 1
+
+            i = j
+
+    return result
+
+
 def make_chunks(
     pages: list[TextPage],
     size: int = 90,
     overlap: int = 20,
     min_words: int = 8,
     exclude_sections: set[str] | tuple[str, ...] | None = None,
+    strategy: str = "sliding_window",
+    **kwargs: Any,
 ) -> list[Chunk]:
-    """Generate sliding window chunks with strict offset and block-level location mapping."""
+    """Generate chunks with the selected chunking strategy and block location mapping.
+
+    Supported strategies:
+    - sliding_window: Fixed-size word sliding window (Baseline B0 compatible)
+    - sentence_window: Complete sentence boundary preservation
+    - paragraph_boundary: Paragraph structural block preservation
+    """
+    if strategy == "sentence_window":
+        return make_sentence_chunks(
+            pages,
+            target_words=kwargs.get("target_words", size),
+            overlap_sentences=kwargs.get("overlap_sentences", 1),
+            min_words=min_words,
+            max_words=kwargs.get("max_words", 140),
+            exclude_sections=exclude_sections,
+        )
+    if strategy == "paragraph_boundary":
+        return make_paragraph_chunks(
+            pages,
+            target_words=kwargs.get("target_words", size),
+            min_words=min_words,
+            max_words=kwargs.get("max_words", 150),
+            exclude_sections=exclude_sections,
+        )
+
     if not (0 <= overlap < size):
         raise ValueError("overlap must be smaller than size")
 
@@ -566,58 +844,15 @@ def make_chunks(
             if chunk_section in excluded:
                 continue
 
-            # Bidirectional block mapping
-            start_block_idx: int | None = None
-            end_block_idx: int | None = None
-            start_para_idx: int | None = None
-            end_para_idx: int | None = None
-            page_start: int | None = page.page_number
-            page_end: int | None = page.page_number
-            mapping_records: list[dict[str, Any]] = []
-
-            if page.blocks:
-                # Find all blocks overlapping with [start, end)
-                overlapping = [
-                    b
-                    for b in page.blocks
-                    if max(start, b.start_char_offset) < min(end, b.end_char_offset)
-                ]
-                if not overlapping:
-                    # Fallback to closest block
-                    overlapping = [min(page.blocks, key=lambda b: abs(b.start_char_offset - start))]
-
-                start_block_idx = overlapping[0].block_index
-                end_block_idx = overlapping[-1].block_index
-
-                para_indices = [b.paragraph_index for b in overlapping if b.paragraph_index is not None]
-                if para_indices:
-                    start_para_idx = min(para_indices)
-                    end_para_idx = max(para_indices)
-
-                page_nums = [b.page_number for b in overlapping if b.page_number is not None]
-                if page_nums:
-                    page_start = min(page_nums)
-                    page_end = max(page_nums)
-
-                mapping_records = [b.to_mapping_dict() for b in overlapping]
-
-            result.append(
-                Chunk(
-                    chunk_no=chunk_no,
-                    page_number=page.page_number,
-                    start_offset=start,
-                    end_offset=end,
-                    text=chunk_text,
-                    section_type=chunk_section,
-                    start_block_index=start_block_idx,
-                    end_block_index=end_block_idx,
-                    start_paragraph_index=start_para_idx,
-                    end_paragraph_index=end_para_idx,
-                    page_start=page_start,
-                    page_end=page_end,
-                    block_mapping=mapping_records,
-                )
+            chunk_obj = _map_blocks_to_chunk(
+                page=page,
+                start=start,
+                end=end,
+                chunk_no=chunk_no,
+                chunk_text=chunk_text,
+                chunk_section=chunk_section,
             )
+            result.append(chunk_obj)
             chunk_no += 1
             if last == len(spans):
                 break

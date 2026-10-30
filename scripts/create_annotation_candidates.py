@@ -18,6 +18,11 @@ from app.documents import (
     is_duplicate_document,
     make_chunks,
 )
+from app.preprocessing import (
+    DEFAULT_EXCLUDED_SECTIONS,
+    get_preprocessing_config,
+    prepare_document_chunks,
+)
 
 ANNOTATION_FIELDS = (
     "task_id",
@@ -38,13 +43,6 @@ ANNOTATION_FIELDS = (
     "status",
     "note",
 )
-
-DEFAULT_EXCLUDED_SECTIONS = {
-    "cover",
-    "table_of_contents",
-    "abbreviations",
-    "references",
-}
 
 
 @dataclass(frozen=True)
@@ -129,8 +127,10 @@ def load_chunks(
         if not file_path.is_file():
             raise FileNotFoundError(f"Staged source is missing: {source_key}")
 
-        pages = extract_pages(str(file_path))
-        chunks = make_chunks(pages, exclude_sections=excluded)
+        cfg = get_preprocessing_config()
+        if exclude_sections is not None:
+            cfg.exclude_sections = set(exclude_sections)
+        chunks, _ = prepare_document_chunks(file_path, config=cfg)
         usable_chunks = [
             SourceChunk(
                 source_key=source_key,
