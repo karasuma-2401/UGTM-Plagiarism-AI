@@ -49,8 +49,16 @@
       "id": "B0",
       "category": "baseline",
       "checkpoint": "CP-00.1 / CP-03.5",
-      "status": "captured_cpu_snapshot_pending_dev_benchmark",
+      "status": "completed",
       "config_ref": "configs/baseline_b0.json",
+      "report_ref": "reports/baseline_reports/report_b0.json",
+      "metrics": {
+        "f1": 0.8571,
+        "recall_at_50": 0.8148,
+        "precision": 0.9041,
+        "recall": 0.8148,
+        "false_alarms_per_doc": 0.1795
+      },
       "description": "Original v2 pipeline (unfiltered 90/20 chunks online, BGE-M3 dense top_k=6 + pg_trgm top_k=6, RRF fused_k=5, prefilter dense>=0.48|lex>=0.25, bge-reranker-v2-m3, heuristic decision, adjacent chunk grouping).",
       "research_question": "RQ1, RQ2, RQ3 reference baseline"
     },
@@ -58,17 +66,33 @@
       "id": "B1",
       "category": "baseline",
       "checkpoint": "CP-03.5",
-      "status": "planned",
-      "config_ref": null,
-      "description": "Lexical-only baseline (pg_trgm / BM25) on block-cleaned corpus without dense retrieval or cross-encoder.",
+      "status": "completed",
+      "config_ref": "configs/baseline_b1.json",
+      "report_ref": "reports/baseline_reports/report_b1.json",
+      "metrics": {
+        "f1": 0.7442,
+        "recall_at_50": 0.8148,
+        "precision": 1.0000,
+        "recall": 0.5926,
+        "false_alarms_per_doc": 0.0000
+      },
+      "description": "Lexical-only baseline (pg_trgm / Char Trigram Dice + Jaccard) on block-cleaned corpus without dense retrieval or cross-encoder.",
       "research_question": "RQ2"
     },
     {
       "id": "B2",
       "category": "baseline",
       "checkpoint": "CP-03.5",
-      "status": "planned",
-      "config_ref": null,
+      "status": "completed",
+      "config_ref": "configs/baseline_b2.json",
+      "report_ref": "reports/baseline_reports/report_b2.json",
+      "metrics": {
+        "f1": 0.8571,
+        "recall_at_50": 1.0000,
+        "precision": 0.7500,
+        "recall": 1.0000,
+        "false_alarms_per_doc": 0.6923
+      },
       "description": "Dense-only baseline (BAAI/bge-m3 exact cosine) without lexical branch or cross-encoder.",
       "research_question": "RQ2"
     },
@@ -76,8 +100,16 @@
       "id": "B3",
       "category": "baseline",
       "checkpoint": "CP-03.5",
-      "status": "planned",
-      "config_ref": null,
+      "status": "completed",
+      "config_ref": "configs/baseline_b3.json",
+      "report_ref": "reports/baseline_reports/report_b3.json",
+      "metrics": {
+        "f1": 0.8571,
+        "recall_at_50": 1.0000,
+        "precision": 0.7500,
+        "recall": 1.0000,
+        "false_alarms_per_doc": 0.6923
+      },
       "description": "Hybrid RRF baseline (lexical + BAAI/bge-m3 dense) without cross-encoder reranking.",
       "research_question": "RQ2"
     },
@@ -85,8 +117,16 @@
       "id": "B4",
       "category": "baseline",
       "checkpoint": "CP-03.5",
-      "status": "planned",
-      "config_ref": null,
+      "status": "completed",
+      "config_ref": "configs/baseline_b4.json",
+      "report_ref": "reports/baseline_reports/report_b4.json",
+      "metrics": {
+        "f1": 1.0000,
+        "recall_at_50": 1.0000,
+        "precision": 1.0000,
+        "recall": 1.0000,
+        "false_alarms_per_doc": 0.0000
+      },
       "description": "Hybrid RRF + BAAI/bge-reranker-v2-m3 on block-filtered corpus prior to CP-04 K-sweep and sentence/span alignment.",
       "research_question": "RQ1, RQ2"
     },

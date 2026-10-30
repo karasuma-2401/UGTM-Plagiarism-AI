@@ -131,7 +131,7 @@ Mẫu execution log:
   - Đầu ra: evaluation scripts/configs và metrics report schema.
   - Hoàn tất khi: evaluator phát hiện được lỗi retrieval riêng với lỗi alignment/classifier; chạy lại trên predictions đã lưu cho cùng kết quả trong sai số đã khai báo.
 
-- [ ] **CP-03.5 — Chạy B0–B4 và lập error taxonomy.**
+- [x] **CP-03.5 — Chạy B0–B4 và lập error taxonomy.**
   - Làm: chạy baseline v2, trigram/BM25 lexical, BGE dense, RRF hybrid, hybrid+reranker trên dev; giữ ngân sách candidate/hardware rõ ràng. Nhóm lỗi: parse, boilerplate, source miss, rerank, alignment, decision, corpus gap. Đặt câu hỏi cải tiến dựa trên lỗi quan sát được.
   - Đầu ra: baseline table, predictions, configs, error-analysis notebook/report.
   - Hoàn tất khi: mỗi dòng kết quả truy được run ID/config/dataset; không dùng F1 của 6 cặp cũ làm headline về độ chính xác thực tế.
