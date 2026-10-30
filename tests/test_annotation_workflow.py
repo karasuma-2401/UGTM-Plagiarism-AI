@@ -190,3 +190,83 @@ def test_finalizer_rejects_unapproved_rows():
 
     with pytest.raises(ValueError, match="status must be approved"):
         finalize_rows([row] * 6, require_two_reviewers=True)
+
+
+def test_finalizer_preserves_raw_labels_during_adjudication():
+    """Verify that raw labels are NEVER overwritten when resolving disagreements via adjudication."""
+    rows = []
+    for i in range(6):
+        # Even rows have disagreement (1 vs 0) resolved by adjudication
+        rev1 = "1" if i % 2 == 0 else "0"
+        rev2 = "0"
+        adj = "1" if i % 2 == 0 else ""
+        reason = "Confirmed substantive paraphrase" if adj else ""
+        rows.append({
+            "task_id": f"TASK-{i}",
+            "group_id": f"group-{i}",
+            "query_text": f"Query passage text {i}",
+            "source_text": f"Source passage text {i}",
+            "reviewer_1_label": rev1,
+            "reviewer_2_label": rev2,
+            "adjudicated_label": adj,
+            "adjudication_reason": reason,
+            "final_label": "",
+            "status": "approved",
+        })
+
+    finalized = finalize_rows(rows, require_two_reviewers=True)
+    assert len(finalized) == 6
+    # Row 0: rev1="1", rev2="0", adjudicated="1"
+    row0 = finalized[0]
+    assert row0["label"] == "1"
+    assert row0["raw_annotator_label"] == "1"
+    assert row0["audit_reviewer_label"] == "0"
+    assert row0["adjudicated_label"] == "1"
+    assert row0["adjudication_reason"] == "Confirmed substantive paraphrase"
+    assert row0["provenance_mode"] == "dual_review_adjudicated"
+
+    # Row 1: rev1="0", rev2="0" -> consensus
+    row1 = finalized[1]
+    assert row1["label"] == "0"
+    assert row1["raw_annotator_label"] == "0"
+    assert row1["audit_reviewer_label"] == "0"
+    assert row1["provenance_mode"] == "dual_review_consensus"
+
+
+def test_finalizer_requires_adjudication_reason_on_disagreement():
+    """Verify that adjudication without an explicit rationale is strictly rejected."""
+    row = {
+        "task_id": "TASK-1",
+        "group_id": "source-1",
+        "query_text": "q text",
+        "source_text": "s text",
+        "reviewer_1_label": "1",
+        "reviewer_2_label": "0",
+        "adjudicated_label": "1",
+        "adjudication_reason": "",  # Missing rationale!
+        "status": "approved",
+    }
+    with pytest.raises(ValueError, match="adjudication_reason is required"):
+        finalize_rows([row] * 6, require_two_reviewers=True)
+
+
+def test_finalizer_supports_solo_annotator_mode():
+    """Verify honest solo-annotator mode works cleanly with clear provenance."""
+    rows = []
+    for i in range(6):
+        lbl = str(i % 2)
+        rows.append({
+            "task_id": f"SOLO-TASK-{i}",
+            "group_id": f"solo-group-{i}",
+            "query_text": f"Query solo {i}",
+            "source_text": f"Source solo {i}",
+            "raw_annotator_label": lbl,
+            "reviewer_2_label": "",  # No fake reviewer!
+            "final_label": "",
+            "status": "approved",
+        })
+
+    finalized = finalize_rows(rows, require_two_reviewers=False, allow_solo_annotator=True)
+    assert len(finalized) == 6
+    assert all(r["provenance_mode"] == "solo_annotator" for r in finalized)
+    assert {r["label"] for r in finalized} == {"0", "1"}

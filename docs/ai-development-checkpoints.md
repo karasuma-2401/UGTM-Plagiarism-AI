@@ -111,7 +111,7 @@ Mẫu execution log:
 
 **Mục tiêu:** có cơ sở đo chất lượng trước khi lựa chọn nâng cấp. **Dự kiến:** 44 giờ, tuần 3; công việc chuẩn bị nhãn bắt đầu từ CP-02. **Phụ thuộc:** CP-00 và CP-02.
 
-- [ ] **CP-03.1 — Viết annotation guideline và kiểm tra nguồn gốc nhãn.**
+- [x] **CP-03.1 — Viết annotation guideline và kiểm tra nguồn gốc nhãn.**
   - Làm: định nghĩa reuse/non-reuse/uncertain, reuse type, citation status và source spans; kiểm tra 50–100 cặp đầu. Chỉnh finalize workflow để không ép ghi đè nhãn gốc sau adjudication. Nếu bạn là annotator duy nhất, ghi rõ; reviewer bên ngoài nếu có chỉ là kiểm định nhãn, không phải phân công phát triển.
   - Đầu ra: guideline, provenance fields và batch hiệu chuẩn.
   - Hoàn tất khi: có quy tắc cho same-topic negative, boilerplate, citation-present và ambiguous; không gán nhãn từ cosine/LLM score, không khai hai reviewer giả.
