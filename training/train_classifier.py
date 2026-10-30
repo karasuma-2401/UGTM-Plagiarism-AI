@@ -1,11 +1,13 @@
 import argparse
 import csv
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 
 import joblib
 import numpy as np
+import sklearn
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     confusion_matrix,
@@ -147,12 +149,15 @@ def main():
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(clf, out)
+    artifact_sha256 = hashlib.sha256(out.read_bytes()).hexdigest()
     manifest = {
         "model_version": "candidate-lr-v1",
         "feature_schema": FEATURE_SCHEMA,
         "feature_names": FEATURE_NAMES,
         "embedding_model": "BAAI/bge-m3",
         "reranker_model": "BAAI/bge-reranker-v2-m3",
+        "artifact_sha256": artifact_sha256,
+        "sklearn_version": sklearn.__version__,
         "threshold": threshold,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "dataset_size": len(rows),

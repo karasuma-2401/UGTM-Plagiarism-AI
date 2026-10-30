@@ -1,126 +1,96 @@
-from functools import lru_cache
+from __future__ import annotations
+
 import logging
-import os
+from typing import Any
 
 import numpy as np
-import requests
-import torch
-import transformers.modeling_utils as mu
-import transformers.utils.import_utils as iu
-
-# Bypass false-positive torch.load safety check for trusted BAAI models
-iu.check_torch_load_is_safe = lambda: None
-mu.check_torch_load_is_safe = lambda: None
-
-from FlagEmbedding import BGEM3FlagModel, FlagReranker
 
 from app.config import settings
+from app.inference import (
+    InferenceBackend,
+    InferenceConfigurationError,
+    InferenceError,
+    LocalInferenceBackend,
+    RemoteInferenceClient,
+)
 
 logger = logging.getLogger(__name__)
 
-
-def get_device():
-    return "cuda:0" if torch.cuda.is_available() else "cpu"
+_LOCAL_BACKEND_CACHE: dict[tuple[Any, ...], LocalInferenceBackend] = {}
 
 
-@lru_cache(maxsize=1)
-def embedder():
-    device = get_device()
-    use_fp16 = device.startswith("cuda")
-    devices = [device] if device.startswith("cuda") else None
-    return BGEM3FlagModel(
-        settings.embedding_model,
-        use_fp16=use_fp16,
-        devices=devices,
+def reset_inference_backend_cache() -> None:
+    """Clear cached local inference backend instances (useful in tests)."""
+    _LOCAL_BACKEND_CACHE.clear()
+
+
+def build_remote_client() -> RemoteInferenceClient:
+    return RemoteInferenceClient(
+        base_url=settings.remote_gpu_url,
+        api_key=settings.remote_gpu_api_key,
+        embedding_model=settings.embedding_model,
+        embedding_revision=settings.embedding_revision,
+        embedding_dim=settings.embedding_dim,
+        reranker_model=settings.reranker_model,
+        reranker_revision=settings.reranker_revision,
+        default_batch_size=settings.remote_gpu_batch_size,
+        timeout_seconds=settings.remote_gpu_timeout_seconds,
+        health_timeout_seconds=settings.remote_gpu_health_timeout_seconds,
     )
 
 
-@lru_cache(maxsize=1)
-def reranker():
-    device = get_device()
-    use_fp16 = device.startswith("cuda")
-    devices = [device] if device.startswith("cuda") else None
-    return FlagReranker(
-        settings.reranker_model,
-        use_fp16=use_fp16,
-        devices=devices,
+def get_inference_backend() -> InferenceBackend:
+    mode = (settings.inference_mode or "").strip().lower()
+    if mode == "remote":
+        return build_remote_client()
+    if mode == "local":
+        cache_key = (
+            settings.embedding_model,
+            settings.embedding_revision,
+            settings.embedding_dim,
+            settings.reranker_model,
+            settings.reranker_revision,
+        )
+        backend = _LOCAL_BACKEND_CACHE.get(cache_key)
+        if backend is None:
+            backend = LocalInferenceBackend(
+                embedding_model=settings.embedding_model,
+                embedding_revision=settings.embedding_revision,
+                embedding_dim=settings.embedding_dim,
+                reranker_model=settings.reranker_model,
+                reranker_revision=settings.reranker_revision,
+            )
+            _LOCAL_BACKEND_CACHE[cache_key] = backend
+        return backend
+
+    raise InferenceConfigurationError(
+        f"Invalid INFERENCE_MODE={settings.inference_mode!r}; expected 'remote' or 'local'."
     )
 
 
-def check_remote_gpu() -> dict | None:
-    url = (settings.remote_gpu_url or "").strip().rstrip("/")
+def check_remote_gpu() -> dict[str, Any] | None:
+    """Non-throwing probe for remote GPU health status."""
+    url = (settings.remote_gpu_url or "").strip()
     if not url:
         return None
     try:
-        res = requests.get(f"{url}/health", timeout=5)
-        if res.ok:
-            return res.json()
-    except Exception as e:
-        logger.warning("Remote GPU health check failed: %s", e)
-    return None
+        return build_remote_client().health()
+    except InferenceError as exc:
+        logger.warning(
+            "Remote GPU health check failed (%s): %s", exc.error_code, exc
+        )
+        return None
 
 
-def encode_texts(texts: list[str], batch_size: int = 4) -> np.ndarray:
-    if not texts:
-        return np.empty((0, 1024), dtype=np.float32)
-
-    url = (settings.remote_gpu_url or "").strip().rstrip("/")
-    if url:
-        try:
-            logger.info("Using Remote GPU (%s) to encode %d texts...", url, len(texts))
-            res = requests.post(
-                f"{url}/encode",
-                json={"texts": texts, "batch_size": 32},
-                timeout=180,
-            )
-            if res.ok:
-                vecs = res.json().get("dense_vecs", [])
-                if len(vecs) == len(texts):
-                    logger.info("Remote GPU encoding succeeded (%d vectors returned).", len(vecs))
-                    return np.asarray(vecs, dtype=np.float32)
-            logger.warning("Remote GPU returned HTTP %s. Falling back to local CPU...", res.status_code)
-        except Exception as e:
-            logger.warning("Remote GPU request failed (%s). Falling back to local CPU...", e)
-
-    data = embedder().encode(
-        texts,
-        batch_size=batch_size,
-        max_length=512,
-        return_dense=True,
-        return_sparse=False,
-        return_colbert_vecs=False,
-    )
-    return np.asarray(data["dense_vecs"], dtype=np.float32)
+def encode_texts(
+    texts: list[str], batch_size: int | None = None
+) -> np.ndarray:
+    """Encode texts using the explicitly configured inference backend (no silent fallback)."""
+    return get_inference_backend().encode(texts, batch_size=batch_size)
 
 
-def rerank_pairs(pairs: list[list[str]], batch_size: int = 4) -> list[float]:
-    if not pairs:
-        return []
-
-    url = (settings.remote_gpu_url or "").strip().rstrip("/")
-    if url:
-        try:
-            logger.info("Using Remote GPU (%s) to rerank %d pairs...", url, len(pairs))
-            res = requests.post(
-                f"{url}/rerank",
-                json={"pairs": pairs, "batch_size": 32},
-                timeout=180,
-            )
-            if res.ok:
-                scores = res.json().get("scores", [])
-                if len(scores) == len(pairs):
-                    logger.info("Remote GPU reranking succeeded (%d scores returned).", len(scores))
-                    return [float(v) for v in scores]
-            logger.warning("Remote GPU rerank returned HTTP %s. Falling back to local CPU...", res.status_code)
-        except Exception as e:
-            logger.warning("Remote GPU rerank request failed (%s). Falling back to local CPU...", e)
-
-    scores = reranker().compute_score(
-        pairs,
-        batch_size=batch_size,
-        normalize=True,
-        max_length=512,
-    )
-    if isinstance(scores, (float, int)):
-        return [float(scores)]
-    return [float(value) for value in scores]
+def rerank_pairs(
+    pairs: list[list[str]], batch_size: int | None = None
+) -> list[float]:
+    """Rerank candidate passage pairs using the explicitly configured inference backend."""
+    return get_inference_backend().rerank(pairs, batch_size=batch_size)

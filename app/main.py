@@ -170,6 +170,7 @@ def client_config():
         "reranker_model": settings.reranker_model,
         "classifier_enabled": settings.classifier_enabled,
         "max_upload_mb": settings.max_upload_mb,
+        "inference_mode": settings.inference_mode,
         "remote_gpu_url": settings.remote_gpu_url,
         "remote_gpu_enabled": bool(settings.remote_gpu_url),
     }

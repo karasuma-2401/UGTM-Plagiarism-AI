@@ -1,4 +1,6 @@
+import hashlib
 import json
+import logging
 from functools import lru_cache
 from pathlib import Path
 
@@ -6,6 +8,8 @@ import joblib
 
 from app.config import settings
 from app.features import FEATURE_NAMES, FEATURE_SCHEMA, feature_vector
+
+logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
@@ -27,6 +31,27 @@ def load_classifier():
         or manifest.get("reranker_model") != settings.reranker_model
     ):
         raise RuntimeError("CLASSIFIER_BASE_MODEL_MISMATCH")
+
+    expected_sha = (manifest.get("artifact_sha256") or "").strip().lower()
+    if expected_sha:
+        actual_sha = hashlib.sha256(path.read_bytes()).hexdigest().lower()
+        if actual_sha != expected_sha:
+            raise RuntimeError("CLASSIFIER_ARTIFACT_HASH_MISMATCH")
+
+    expected_sklearn = (manifest.get("sklearn_version") or "").strip()
+    if expected_sklearn:
+        try:
+            import sklearn
+
+            if sklearn.__version__ != expected_sklearn:
+                logger.warning(
+                    "Classifier artifact sklearn_version (%s) differs from runtime (%s)",
+                    expected_sklearn,
+                    sklearn.__version__,
+                )
+        except ImportError:
+            pass
+
     model = joblib.load(path)
     return model, manifest
 
@@ -43,4 +68,3 @@ def score_candidate(features: dict):
         "threshold": float(manifest["threshold"]),
         "version": str(manifest["model_version"]),
     }
-

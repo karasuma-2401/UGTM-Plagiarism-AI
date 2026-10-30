@@ -44,12 +44,12 @@ Mẫu execution log:
 
 **Mục tiêu:** upload → job → remote GPU → report chạy thật trên hạ tầng dev đã chọn. **Dự kiến:** 40 giờ, tuần 1. **Phụ thuộc:** CP-00.
 
-- [ ] **CP-01.1 — Tách môi trường CPU/API khỏi GPU.**
+- [x] **CP-01.1 — Tách môi trường CPU/API khỏi GPU.**
   - Làm: khôi phục Python environment; tách dependency API, CPU worker và GPU notebook; refactor `app/models.py` thành inference interface/remote client/local loader. Không import Torch/FlagEmbedding chỉ để dùng remote client. Thay model-loading safety bypass bằng bộ phiên bản tương thích và artifact đáng tin cậy.
   - Đầu ra: dependency files/lock, inference interface và hướng dẫn chạy native.
   - Hoàn tất khi: API và CPU worker khởi động không cần CUDA hoặc download BGE; remote mode không fallback âm thầm sang local model; tests liên quan chạy được.
 
-- [ ] **CP-01.2 — Chuẩn bị Neon và migration.**
+- [x] **CP-01.2 — Chuẩn bị Neon và migration.**
   - Làm: dùng môi trường Neon dev riêng; bật `vector`, `pg_trgm`; chuyển schema hiện tại thành migration chạy lại có kiểm soát; cấu hình TLS, runtime connection và direct migration/backup connection. Dùng chính truy vấn của `app/search.py` để smoke-test.
   - Đầu ra: migration, cấu hình mẫu không chứa secret, smoke test insert/query vector và trigram.
   - Hoàn tất khi: API/worker đọc ghi được Neon, schema đúng, lỗi connection được phân loại; backup và restore thử được ở CP-05.

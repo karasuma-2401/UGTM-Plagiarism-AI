@@ -1,4 +1,4 @@
-FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+FROM python:3.12-slim
 
 WORKDIR /service
 
@@ -10,9 +10,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN python -m pip install --no-cache-dir -r requirements.txt
+COPY requirements ./requirements
+RUN python -m pip install --no-cache-dir -r requirements/cpu-worker.txt
 
 COPY app ./app
+COPY artifacts ./artifacts
 COPY training ./training
 COPY tests ./tests
 

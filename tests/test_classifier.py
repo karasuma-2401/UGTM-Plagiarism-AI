@@ -1,3 +1,4 @@
+import hashlib
 import json
 import joblib
 import numpy as np
@@ -128,6 +129,58 @@ def test_score_candidate_when_enabled(tmp_path):
         load_classifier.cache_clear()
         reloaded_result = score_candidate(features)
         assert reloaded_result == result
+    finally:
+        settings.classifier_enabled = original_enabled
+        settings.classifier_path = original_path
+        load_classifier.cache_clear()
+
+
+def test_load_classifier_verifies_artifact_sha256(tmp_path):
+    original_enabled = settings.classifier_enabled
+    original_path = settings.classifier_path
+    try:
+        model_file = tmp_path / "trusted.joblib"
+        manifest_file = tmp_path / "trusted.manifest.json"
+        joblib.dump(DummyClassifier(), model_file)
+        valid_sha = hashlib.sha256(model_file.read_bytes()).hexdigest()
+
+        manifest_file.write_text(
+            json.dumps(
+                {
+                    "model_version": "candidate-lr-v1",
+                    "feature_schema": FEATURE_SCHEMA,
+                    "feature_names": FEATURE_NAMES,
+                    "embedding_model": settings.embedding_model,
+                    "reranker_model": settings.reranker_model,
+                    "artifact_sha256": "0" * 64,
+                    "threshold": 0.65,
+                }
+            ),
+            encoding="utf-8",
+        )
+        settings.classifier_enabled = True
+        settings.classifier_path = model_file
+        load_classifier.cache_clear()
+        with pytest.raises(RuntimeError, match="CLASSIFIER_ARTIFACT_HASH_MISMATCH"):
+            load_classifier()
+
+        manifest_file.write_text(
+            json.dumps(
+                {
+                    "model_version": "candidate-lr-v1",
+                    "feature_schema": FEATURE_SCHEMA,
+                    "feature_names": FEATURE_NAMES,
+                    "embedding_model": settings.embedding_model,
+                    "reranker_model": settings.reranker_model,
+                    "artifact_sha256": valid_sha,
+                    "threshold": 0.65,
+                }
+            ),
+            encoding="utf-8",
+        )
+        load_classifier.cache_clear()
+        _, loaded_manifest = load_classifier()
+        assert loaded_manifest["artifact_sha256"] == valid_sha
     finally:
         settings.classifier_enabled = original_enabled
         settings.classifier_path = original_path

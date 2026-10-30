@@ -4,17 +4,16 @@ from psycopg.types.json import Jsonb
 
 from app.alignment import group_adjacent_findings
 from app.celery_app import celery_app
-from app.classifier import score_candidate
 from app.config import settings
 from app.db import connect, get_job, set_status
-from app.documents import extract_pages, make_chunks
 from app.features import build_features
-from app.search import retrieve, vector_literal
 
 logger = logging.getLogger(__name__)
 
 
 def parse_job(job):
+    from app.documents import extract_pages, make_chunks
+
     chunks = make_chunks(extract_pages(job["file_path"]))
     if not chunks:
         raise ValueError("EMPTY_TEXT")
@@ -23,7 +22,9 @@ def parse_job(job):
 
 @celery_app.task(name="app.tasks.index_source")
 def index_source(job_id: str):
+    from app.inference import InferenceError
     from app.models import encode_texts
+    from app.search import vector_literal
 
     set_status(job_id, "processing")
     try:
@@ -105,6 +106,14 @@ def index_source(job_id: str):
                     job_id,
                 ),
             )
+    except InferenceError as exc:
+        logger.error(
+            "Index job %s failed due to inference error (%s): %s",
+            job_id,
+            exc.error_code,
+            exc,
+        )
+        set_status(job_id, "failed", exc.error_code)
     except Exception:
         logger.exception("Index job failed: %s", job_id)
         set_status(job_id, "failed", "INDEX_ERROR")
@@ -112,7 +121,10 @@ def index_source(job_id: str):
 
 @celery_app.task(name="app.tasks.scan_document")
 def scan_document(job_id: str):
+    from app.classifier import score_candidate
+    from app.inference import InferenceError
     from app.models import encode_texts, rerank_pairs
+    from app.search import retrieve
 
     set_status(job_id, "processing")
     try:
@@ -244,6 +256,14 @@ def scan_document(job_id: str):
                 """,
                 (Jsonb(report), job_id),
             )
+    except InferenceError as exc:
+        logger.error(
+            "Scan job %s failed due to inference error (%s): %s",
+            job_id,
+            exc.error_code,
+            exc,
+        )
+        set_status(job_id, "failed", exc.error_code)
     except Exception:
         logger.exception("Scan job failed: %s", job_id)
         set_status(job_id, "failed", "SCAN_ERROR")
