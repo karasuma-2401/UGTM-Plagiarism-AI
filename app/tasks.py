@@ -21,7 +21,20 @@ def parse_job(job):
         expected_sha256=job.get("file_sha256"),
         suffix=Path(job.get("filename", "")).suffix,
     ) as temp_path:
-        chunks, stats = prepare_document_chunks(str(temp_path))
+        if temp_path.stat().st_size == 0:
+            raise ValueError("EMPTY_TEXT")
+        try:
+            chunks, stats = prepare_document_chunks(str(temp_path))
+        except ValueError:
+            raise
+        except Exception as exc:
+            logger.warning(
+                "Document parsing failed for file %s: %s",
+                job.get("filename"),
+                exc,
+            )
+            raise ValueError("CORRUPTED_DOCUMENT") from exc
+
         if not chunks:
             raise ValueError("EMPTY_TEXT")
         logger.info(
@@ -128,6 +141,19 @@ def index_source(job_id: str):
             exc,
         )
         set_status(job_id, "failed", exc.error_code)
+    except ValueError as exc:
+        code = str(exc)
+        known_codes = {
+            "CORPUS_EMPTY",
+            "EMPTY_TEXT",
+            "TOO_MANY_PAGES",
+            "DOCUMENT_TOO_LONG",
+            "CORRUPTED_DOCUMENT",
+            "UNSUPPORTED_FILE_FORMAT",
+        }
+        err_code = code if code in known_codes else "INDEX_ERROR"
+        logger.warning("Index job %s validation failed (%s): %s", job_id, err_code, exc)
+        set_status(job_id, "failed", err_code)
     except Exception:
         logger.exception("Index job failed: %s", job_id)
         set_status(job_id, "failed", "INDEX_ERROR")
@@ -271,6 +297,19 @@ def scan_document(job_id: str):
             exc,
         )
         set_status(job_id, "failed", exc.error_code)
+    except ValueError as exc:
+        code = str(exc)
+        known_codes = {
+            "CORPUS_EMPTY",
+            "EMPTY_TEXT",
+            "TOO_MANY_PAGES",
+            "DOCUMENT_TOO_LONG",
+            "CORRUPTED_DOCUMENT",
+            "UNSUPPORTED_FILE_FORMAT",
+        }
+        err_code = code if code in known_codes else "SCAN_ERROR"
+        logger.warning("Scan job %s validation failed (%s): %s", job_id, err_code, exc)
+        set_status(job_id, "failed", err_code)
     except Exception:
         logger.exception("Scan job failed: %s", job_id)
         set_status(job_id, "failed", "SCAN_ERROR")

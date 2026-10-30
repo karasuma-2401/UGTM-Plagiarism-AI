@@ -100,7 +100,7 @@ Mẫu execution log:
   - Đầu ra: JSON schema/Pydantic models, report fixtures, compatibility adapter.
   - Hoàn tất khi: contract test giữa worker/API/dev UI pass; tổng số evidence không phụ thuộc cap 200; reranker score không được gọi là tỷ lệ đạo văn.
 
-- [ ] **CP-02.5 — Kiểm tra toàn bộ đường đi của một evidence.**
+- [x] **CP-02.5 — Kiểm tra toàn bộ đường đi của một evidence.**
   - Làm: lấy mẫu evidence, truy ngược từ report → source/version → block/span → file; kiểm tra nội dung tiếng Việt, normalize và overlap. Tạo cả case không có nguồn trong kho và case parse lỗi.
   - Đầu ra: evidence audit và bộ regression cases.
   - Hoàn tất khi: chỉ ra được nguồn/vị trí của từng evidence được kiểm tra; no-match, corpus-empty và parse-failed có trạng thái khác nhau.
