@@ -116,17 +116,17 @@ Mẫu execution log:
   - Đầu ra: guideline, provenance fields và batch hiệu chuẩn.
   - Hoàn tất khi: có quy tắc cho same-topic negative, boilerplate, citation-present và ambiguous; không gán nhãn từ cosine/LLM score, không khai hai reviewer giả.
 
-- [ ] **CP-03.2 — Thu thập đủ các dạng benchmark theo scope đã chốt.**
+- [x] **CP-03.2 — Thu thập đủ các dạng benchmark theo scope đã chốt.**
   - Làm: xây mục tiêu 600–1.000 cặp, 40–60 document families và 60–100 query documents; có copy, paraphrase, summarization, multi-source, Việt–Anh, hard negatives và nguồn ngoài kho. Dữ liệu synthetic lưu nguồn và phép biến đổi; có dữ liệu người viết và kiểm tra thủ công.
   - Đầu ra: dataset version, data card, thống kê số lượng theo slice và quyền dùng.
   - Hoàn tất khi: mỗi mẫu dùng trong đánh giá có provenance/nhãn/spans phù hợp; số lượng thực đạt được được công bố. Nếu thiếu nguồn hoặc nhãn, task còn thiếu phần tương ứng, không đổi mục tiêu âm thầm.
 
-- [ ] **CP-03.3 — Khóa split và kiểm tra leakage.**
+- [x] **CP-03.3 — Khóa split và kiểm tra leakage.**
   - Làm: chia theo document families trước tạo biến thể; xét source ở cả hai phía, connected components và multi-source; dedup xuyên split. Giữ test chưa dùng để chọn threshold/model; retrieval test vẫn có nguồn đúng trong corpus test.
   - Đầu ra: split manifest/hash, leakage audit và test access protocol.
   - Hoàn tất khi: không có family/biến thể rơi vào nhiều split; có khoảng 20–30 query documents test nếu đạt mục tiêu dữ liệu; no-source query được đánh giá riêng.
 
-- [ ] **CP-03.4 — Xây evaluator theo từng tầng.**
+- [x] **CP-03.4 — Xây evaluator theo từng tầng.**
   - Làm: source Recall@K/nDCG, pair metrics, span metrics, false alarms/bài, latency và cost counters; chốt định nghĩa averaging/matching/normalization. Tạo fixtures có kết quả tính tay để kiểm tra evaluator. Cache model output theo đúng revision/config.
   - Đầu ra: evaluation scripts/configs và metrics report schema.
   - Hoàn tất khi: evaluator phát hiện được lỗi retrieval riêng với lỗi alignment/classifier; chạy lại trên predictions đã lưu cho cùng kết quả trong sai số đã khai báo.

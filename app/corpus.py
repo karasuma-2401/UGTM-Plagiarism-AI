@@ -373,6 +373,15 @@ def save_corpus_manifest_v2(records: list[ManifestRecord], destination_csv: Path
             writer.writerow(r.to_dict())
 
 
+def load_corpus_manifest_v2(csv_path: Path) -> list[ManifestRecord]:
+    """Load and parse records from a Manifest Schema v2 CSV file."""
+    if not csv_path.is_file():
+        return []
+    with csv_path.open(newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        return [ManifestRecord.from_dict(row) for row in reader]
+
+
 def should_exclude_source_for_query(
     query_key: str | None,
     query_family: str | None,

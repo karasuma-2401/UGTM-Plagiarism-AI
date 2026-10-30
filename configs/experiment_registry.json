@@ -19,20 +19,20 @@
     {
       "freeze_id": "FREEZE-SCHEMA-V3",
       "checkpoint": "CP-02.4",
-      "status": "planned",
-      "locked_at": null,
-      "config_path": null,
+      "status": "locked",
+      "locked_at": "2026-10-30",
+      "config_path": "docs/report-schema-v3-specification.md",
       "git_commit": null,
       "notes": "Lock block-level parser, section filter config, corpus provenance manifest, and report schema v3."
     },
     {
       "freeze_id": "FREEZE-BENCHMARK-SPLIT",
       "checkpoint": "CP-03.3",
-      "status": "planned",
-      "locked_at": null,
-      "config_path": null,
+      "status": "locked",
+      "locked_at": "2026-10-30",
+      "config_path": "data/benchmark_v1/split_manifest.json",
       "git_commit": null,
-      "notes": "Lock family-level train/dev/test split manifest hash and leakage audit before running B0-B4."
+      "notes": "Lock family-level train (560)/val (120)/test (120) split manifest hash and zero-leakage audit."
     },
     {
       "freeze_id": "FREEZE-AI-RC1",
