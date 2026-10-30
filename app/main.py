@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.db import connect, get_job
+from app.storage import get_storage
 from app.tasks import index_source, scan_document
 
 logger = logging.getLogger(__name__)
@@ -84,6 +85,13 @@ async def save_upload(file: UploadFile) -> tuple[str, str, str]:
                         status_code=413,
                         detail="Expanded DOCX too large",
                     )
+
+        storage = get_storage()
+        if storage.name == "s3":
+            object_key = f"uploads/{digest.hexdigest()[:16]}_{filename}"
+            storage.upload_file(path, object_key)
+            path.unlink(missing_ok=True)
+            return object_key, digest.hexdigest(), filename
 
         return str(path), digest.hexdigest(), filename
     except Exception:
@@ -171,6 +179,7 @@ def client_config():
         "classifier_enabled": settings.classifier_enabled,
         "max_upload_mb": settings.max_upload_mb,
         "inference_mode": settings.inference_mode,
+        "storage_backend": settings.effective_storage_backend,
         "remote_gpu_url": settings.remote_gpu_url,
         "remote_gpu_enabled": bool(settings.remote_gpu_url),
     }
@@ -353,8 +362,16 @@ async def demo_quick_scan():
     target_path = upload_dir / f"{uuid.uuid4().hex}.docx"
 
     file_bytes = sample_path.read_bytes()
-    target_path.write_bytes(file_bytes)
     sha = hashlib.sha256(file_bytes).hexdigest()
+
+    storage = get_storage()
+    if storage.name == "s3":
+        object_key = f"uploads/samples/{sha[:16]}_suspect_doc.docx"
+        storage.upload_file(sample_path, object_key)
+        target_ref = object_key
+    else:
+        target_path.write_bytes(file_bytes)
+        target_ref = str(target_path)
 
     submission_id = f"kltn_nop_{uuid.uuid4().hex[:6]}"
     job_id, created = insert_job(
@@ -363,7 +380,7 @@ async def demo_quick_scan():
         submission_id,
         1,
         "suspect_doc.docx",
-        str(target_path),
+        target_ref,
         sha,
     )
     if created:
@@ -388,8 +405,16 @@ async def demo_quick_index():
     target_path = upload_dir / f"{uuid.uuid4().hex}.docx"
 
     file_bytes = sample_path.read_bytes()
-    target_path.write_bytes(file_bytes)
     sha = hashlib.sha256(file_bytes).hexdigest()
+
+    storage = get_storage()
+    if storage.name == "s3":
+        object_key = f"uploads/samples/{sha[:16]}_source_doc.docx"
+        storage.upload_file(sample_path, object_key)
+        target_ref = object_key
+    else:
+        target_path.write_bytes(file_bytes)
+        target_ref = str(target_path)
 
     source_id = f"kltn_nguon_{uuid.uuid4().hex[:6]}"
     job_id, created = insert_job(
@@ -398,7 +423,7 @@ async def demo_quick_index():
         source_id,
         1,
         "source_doc.docx",
-        str(target_path),
+        target_ref,
         sha,
     )
     if created:

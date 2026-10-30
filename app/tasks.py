@@ -12,12 +12,19 @@ logger = logging.getLogger(__name__)
 
 
 def parse_job(job):
+    from pathlib import Path
     from app.documents import extract_pages, make_chunks
+    from app.storage import download_to_temp_file
 
-    chunks = make_chunks(extract_pages(job["file_path"]))
-    if not chunks:
-        raise ValueError("EMPTY_TEXT")
-    return chunks
+    with download_to_temp_file(
+        job["file_path"],
+        expected_sha256=job.get("file_sha256"),
+        suffix=Path(job.get("filename", "")).suffix,
+    ) as temp_path:
+        chunks = make_chunks(extract_pages(str(temp_path)))
+        if not chunks:
+            raise ValueError("EMPTY_TEXT")
+        return chunks
 
 
 @celery_app.task(name="app.tasks.index_source")

@@ -54,12 +54,12 @@ Mẫu execution log:
   - Đầu ra: migration, cấu hình mẫu không chứa secret, smoke test insert/query vector và trigram.
   - Hoàn tất khi: API/worker đọc ghi được Neon, schema đúng, lỗi connection được phân loại; backup và restore thử được ở CP-05.
 
-- [ ] **CP-01.3 — Chốt queue và nơi chạy CPU worker.**
+- [x] **CP-01.3 — Chốt queue và nơi chạy CPU worker.**
   - Làm: triển khai FastAPI bằng Render Python native runtime; giữ Celery với broker Redis-compatible. Phương án chính: Render Background Worker + Render Key Value. Xác nhận gói/chi phí trước khi tạo dịch vụ trả phí. Nếu chưa dùng gói worker, chạy cùng CPU worker trên máy cá nhân trong phiên dev và cấu hình broker truy cập được an toàn; không đặt Celery lâu dài trong Free Web Service.
   - Đầu ra: cấu hình deploy có phiên bản, start commands và runbook API/worker/broker.
   - Hoàn tất khi: submit trả job ID nhanh, CPU worker nhận job qua broker; restart API không làm mất bản ghi job trong Neon. Phân biệt rõ broker với DB kết quả.
 
-- [ ] **CP-01.4 — Thay shared Docker volume bằng file store dùng chung.**
+- [x] **CP-01.4 — Thay shared Docker volume bằng file store dùng chung.**
   - Làm: dùng file store UGTM nếu đã có contract; nếu chưa có, chọn một object storage dev và viết storage adapter. API lưu object key/hash, worker tải về thư mục tạm riêng để parse rồi dọn. Lưu classifier/model manifest và cache bền vững; không dùng đường dẫn local của API làm input worker.
   - Đầu ra: storage adapter, schema object reference, chính sách quyền và cleanup.
   - Hoàn tất khi: API và worker ở hai máy vẫn quét được cùng file; redeploy không mất nguồn/report/artifact. URL có hạn phải tạo lại được khi retry.

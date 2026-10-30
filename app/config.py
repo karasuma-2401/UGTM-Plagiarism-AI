@@ -35,5 +35,53 @@ class Settings(BaseSettings):
     remote_gpu_health_timeout_seconds: float = 5.0
     remote_gpu_batch_size: int = 32
 
+    # Storage Backend Configuration (CP-01.4)
+    storage_backend: Literal["local", "r2", "s3"] = "local"
+    s3_endpoint_url: str | None = None
+    s3_access_key_id: str | None = None
+    s3_secret_access_key: str | None = None
+    s3_bucket_name: str | None = None
+    s3_region_name: str = "auto"
+    s3_presigned_url_expire_seconds: int = 3600
+    r2_endpoint_url: str | None = None
+    r2_account_id: str | None = None
+    r2_access_key_id: str | None = None
+    r2_secret_access_key: str | None = None
+    r2_bucket_name: str | None = None
+
+    @property
+    def effective_storage_backend(self) -> str:
+        backend = (self.storage_backend or "").strip().lower()
+        if backend in ("r2", "s3"):
+            return "s3"
+        return "local"
+
+    @property
+    def effective_s3_endpoint(self) -> str | None:
+        if self.s3_endpoint_url:
+            return self.s3_endpoint_url.strip()
+        if self.r2_endpoint_url:
+            return self.r2_endpoint_url.strip()
+        if self.r2_account_id:
+            return f"https://{self.r2_account_id.strip()}.r2.cloudflarestorage.com"
+        return None
+
+    @property
+    def effective_s3_access_key(self) -> str | None:
+        return (self.s3_access_key_id or self.r2_access_key_id or "").strip() or None
+
+    @property
+    def effective_s3_secret_key(self) -> str | None:
+        return (
+            (self.s3_secret_access_key or self.r2_secret_access_key or "").strip()
+            or None
+        )
+
+    @property
+    def effective_s3_bucket(self) -> str:
+        return (
+            (self.s3_bucket_name or self.r2_bucket_name or "ugtm-ai-dev").strip()
+        )
+
 
 settings = Settings()
