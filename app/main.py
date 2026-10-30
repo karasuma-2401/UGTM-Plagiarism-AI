@@ -339,13 +339,31 @@ def job_status(job_id: uuid.UUID):
 
 
 @app.get("/api/v1/reports/{job_id}", dependencies=[Depends(require_key)])
-def report(job_id: uuid.UUID):
+def report(
+    job_id: uuid.UUID,
+    schema: int | None = Query(default=None, description="Schema version requested (2 or 3)"),
+    page: int = Query(default=1, ge=1, description="Page number for findings pagination"),
+    page_size: int = Query(default=100, ge=1, le=500, description="Items per page"),
+):
     job = get_job(str(job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     if job["status"] != "completed":
         raise HTTPException(status_code=409, detail="Job not completed")
-    return job["report"] or {}
+
+    rep = job["report"] or {}
+    if not rep:
+        return {}
+
+    if schema == 2:
+        from app.reports import convert_report_to_schema_v2
+        return convert_report_to_schema_v2(rep)
+
+    if rep.get("schema_version") == 3:
+        from app.reports import paginate_report_findings
+        return paginate_report_findings(rep, page=page, page_size=page_size)
+
+    return rep
 
 
 @app.post("/api/v1/demo/quick-scan", status_code=202, dependencies=[Depends(require_key)])

@@ -14,38 +14,50 @@ def retrieve(
     corpus_id: str,
     top_k: int = 6,
     fused_k: int = 5,
+    exclude_source_keys: list[str] | None = None,
+    exclude_document_family: str | None = None,
 ) -> list[dict]:
     vector = vector_literal(query_vector)
+
+    extra_filters: list[str] = []
+    extra_params: list[object] = []
+    if exclude_source_keys:
+        extra_filters.append("AND NOT (s.source_key = ANY(%s))")
+        extra_params.append(list(exclude_source_keys))
+    if exclude_document_family:
+        extra_filters.append("AND (s.document_family IS NULL OR s.document_family != %s)")
+        extra_params.append(exclude_document_family)
+
+    filter_clause = (" " + " ".join(extra_filters)) if extra_filters else ""
+
     with connect() as con:
-        dense = con.execute(
-            """
+        dense_sql = f"""
             SELECT c.id, c.content, c.page_number,
                    c.start_offset, c.end_offset,
-                   s.source_key, s.version, s.filename,
+                   s.source_key, s.version, s.filename, s.document_family,
                    1 - (c.embedding <=> %s::vector) AS dense_score
             FROM integrity.chunks c
             JOIN integrity.sources s ON s.id = c.source_id
-            WHERE s.corpus_id = %s AND s.is_active = TRUE
+            WHERE s.corpus_id = %s AND s.is_active = TRUE{filter_clause}
             ORDER BY c.embedding <=> %s::vector
             LIMIT %s
-            """,
-            (vector, corpus_id, vector, top_k),
-        ).fetchall()
+        """
+        dense_params = (vector, corpus_id, *extra_params, vector, top_k)
+        dense = con.execute(dense_sql, dense_params).fetchall()
 
-        lexical = con.execute(
-            """
+        lexical_sql = f"""
             SELECT c.id, c.content, c.page_number,
                    c.start_offset, c.end_offset,
-                   s.source_key, s.version, s.filename,
+                   s.source_key, s.version, s.filename, s.document_family,
                    similarity(c.content, %s) AS lexical_score
             FROM integrity.chunks c
             JOIN integrity.sources s ON s.id = c.source_id
-            WHERE s.corpus_id = %s AND s.is_active = TRUE
+            WHERE s.corpus_id = %s AND s.is_active = TRUE{filter_clause}
             ORDER BY similarity(c.content, %s) DESC
             LIMIT %s
-            """,
-            (query_text, corpus_id, query_text, top_k),
-        ).fetchall()
+        """
+        lexical_params = (query_text, corpus_id, *extra_params, query_text, top_k)
+        lexical = con.execute(lexical_sql, lexical_params).fetchall()
 
     merged: dict[int, dict] = {}
     for branch, rows in (("dense", dense), ("lexical", lexical)):
@@ -57,6 +69,7 @@ def retrieve(
                     "source_key": row["source_key"],
                     "source_version": row["version"],
                     "source_filename": row["filename"],
+                    "document_family": row["document_family"] if "document_family" in row else None,
                     "source_page": row["page_number"],
                     "source_start": row["start_offset"],
                     "source_end": row["end_offset"],

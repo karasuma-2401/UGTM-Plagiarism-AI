@@ -158,11 +158,20 @@ def scan_document(job_id: str):
         vectors = encode_texts([x.text for x in query_chunks])
         all_findings: list[dict] = []
 
+        exclude_source_keys = [job["document_key"]] if job.get("document_key") else None
+        exclude_document_family = job.get("document_family")
+
         # TỐI ƯU HÓA: Lọc thô ứng viên trước khi đưa vào mô hình Cross-Encoder.
         # Chỉ những cặp có độ tương đồng ban đầu tiềm năng mới cần rerank sâu.
         candidates_to_rerank: list[tuple] = []
         for query_chunk, vector in zip(query_chunks, vectors):
-            candidates = retrieve(query_chunk.text, vector, job["corpus_id"])
+            candidates = retrieve(
+                query_chunk.text,
+                vector,
+                job["corpus_id"],
+                exclude_source_keys=exclude_source_keys,
+                exclude_document_family=exclude_document_family,
+            )
             if not candidates:
                 continue
             for item in candidates:
@@ -223,44 +232,28 @@ def scan_document(job_id: str):
                     }
                 )
 
-        # Sắp xếp, giữ một vài bằng chứng có điểm tốt nhất trên mỗi chunk.
-        all_findings.sort(key=lambda f: f["reranker_score"], reverse=True)
-        findings = group_adjacent_findings(all_findings[:200])
-        # Các ID nhóm passage chỉ dành cho UI, không phải kết luận đạo văn.
         if settings.classifier_enabled:
             from app.classifier import load_classifier
 
             _, classifier_manifest = load_classifier()
             classifier_version = classifier_manifest["model_version"]
+            detector_mode = "custom_classifier"
         else:
             classifier_version = None
-        report = {
-            "schema_version": 2,
-            "job_id": job_id,
-            "corpus_id": job["corpus_id"],
-            "submission_id": job["document_key"],
-            "submission_version": job["version"],
-            "model": {
-                "embedding": settings.embedding_model,
-                "reranker": settings.reranker_model,
-                "classifier_version": classifier_version,
-                "detector_mode": (
-                    "classifier" if settings.classifier_enabled else "heuristic"
-                ),
-            },
-            "summary": {
-                "scanned_chunks": len(query_chunks),
-                "flagged_pairs": len(all_findings),
-                "findings_returned": len(findings),
-                "matched_sources": len({f["source_key"] for f in all_findings}),
-                "passage_groups": len({f["passage_group_id"] for f in findings}),
-            },
-            "findings": findings,
-            "disclaimer": (
-                "Similarity evidence only; teachers must verify sources, "
-                "citations and context. No automatic plagiarism verdict."
-            ),
-        }
+            detector_mode = "heuristic"
+
+        from app.reports import build_report_v3
+
+        report = build_report_v3(
+            job_id=job_id,
+            job=job,
+            query_chunks=query_chunks,
+            all_findings=all_findings,
+            preprocessing_profile="production_v1",
+            corpus_snapshot_id="corpus-v2-73fams",
+            classifier_version=classifier_version,
+            detector_mode=detector_mode,
+        )
         with connect() as con:
             con.execute(
                 """

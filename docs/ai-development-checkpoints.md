@@ -90,12 +90,12 @@ Mẫu execution log:
   - Đầu ra: preprocessing config, thống kê trước/sau lọc và tests cho PDF/DOCX.
   - Hoàn tất khi: cùng input/config tạo cùng chunks giữa offline và online; loại boilerplate không loại nhầm cả tài liệu; vẫn tái chạy được B0.
 
-- [ ] **CP-02.3 — Làm sạch danh mục nguồn và quyền xử lý.**
+- [x] **CP-02.3 — Làm sạch danh mục nguồn và quyền xử lý.**
   - Làm: manifest ID, file hash, normalized-text hash, metadata, document family, version và quyền local/cloud; dùng fuzzy metadata để gợi ý dedup cần kiểm tra. Phân biệt bản nộp cũ của cùng người, tài liệu trùng và nguồn độc lập.
   - Đầu ra: corpus manifest, duplicate audit và quy tắc self-match/exclusion.
   - Hoàn tất khi: không đưa hai bản cùng thesis sang hai split độc lập; danh sách dữ liệu được phép chạy Colab/Neon/storage được xác định; file gốc được giữ nguyên.
 
-- [ ] **CP-02.4 — Chốt report schema v3 và provenance.**
+- [x] **CP-02.4 — Chốt report schema v3 và provenance.**
   - Làm: thống nhất `summary`, `findings`, passage groups và pagination; lưu đầy đủ kết quả trước khi giới hạn UI. Ghi parser/chunker/model/classifier revision, corpus snapshot, config hash, source version và offsets. Chốt semantics của score, coverage và trạng thái thiếu dữ liệu.
   - Đầu ra: JSON schema/Pydantic models, report fixtures, compatibility adapter.
   - Hoàn tất khi: contract test giữa worker/API/dev UI pass; tổng số evidence không phụ thuộc cap 200; reranker score không được gọi là tỷ lệ đạo văn.
