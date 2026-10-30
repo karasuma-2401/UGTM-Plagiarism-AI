@@ -142,3 +142,12 @@ Bộ kiểm thử bao gồm:
 - Không tự động kết luận đạo văn và không công bố một chỉ số "phần trăm đạo văn" thiếu căn cứ học thuật.
 
 Tài liệu thiết kế chi tiết và hướng dẫn tích hợp: xem [UGTM-Plagiarism-AI.md](./UGTM-Plagiarism-AI.md).
+
+## Kế hoạch nâng cấp AI
+
+Phạm vi nâng cấp dịch vụ AI cho UGTM, triển khai bởi một người trong khoảng 6 tuần:
+
+- [Kế hoạch nghiên cứu và kiến trúc phát triển Render–Neon–Colab](./docs/research-product-upgrade-plan-2026-10-29.md).
+- [Checklist theo checkpoint: task, đầu ra và tiêu chí hoàn tất](./docs/ai-development-checkpoints.md).
+
+Các tài liệu này mô tả công việc dự kiến, không phải xác nhận tính năng đã triển khai. Mục tiêu là nền tảng kỹ thuật có thể phát triển thành sản phẩm thương mại; website/backend/database hiện tại phục vụ phát triển và kiểm chứng AI.

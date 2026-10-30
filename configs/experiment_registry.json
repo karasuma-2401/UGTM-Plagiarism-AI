@@ -1,0 +1,167 @@
+{
+  "registry_version": "1.0.0",
+  "updated_at": "2026-10-30",
+  "change_protocol": {
+    "rule_1": "Every change to parser, section filter, chunker, retrieval K/prefilter, alignment, citation detector, classifier, or threshold MUST assign a new run/experiment ID and record rationale before claiming improvement.",
+    "rule_2": "Hold-out test split (locked at CP-03.3) MUST NOT be read or evaluated for model/threshold selection prior to CP-06.1.",
+    "rule_3": "Raw thesis text, student identifiers, and predictions containing private thesis excerpts MUST remain inside git-ignored directories (data/, training_data/, training_runs/) or authorized private storage."
+  },
+  "freeze_milestones": [
+    {
+      "freeze_id": "FREEZE-B0",
+      "checkpoint": "CP-00.1",
+      "status": "locked",
+      "locked_at": "2026-10-30",
+      "config_path": "configs/baseline_b0.json",
+      "git_commit": "78e4a94f173a32f178bab70568d397625227533d",
+      "notes": "Initial MVP v2 code & config frozen prior to CP-01 infrastructure and CP-02 parser changes."
+    },
+    {
+      "freeze_id": "FREEZE-SCHEMA-V3",
+      "checkpoint": "CP-02.4",
+      "status": "planned",
+      "locked_at": null,
+      "config_path": null,
+      "git_commit": null,
+      "notes": "Lock block-level parser, section filter config, corpus provenance manifest, and report schema v3."
+    },
+    {
+      "freeze_id": "FREEZE-BENCHMARK-SPLIT",
+      "checkpoint": "CP-03.3",
+      "status": "planned",
+      "locked_at": null,
+      "config_path": null,
+      "git_commit": null,
+      "notes": "Lock family-level train/dev/test split manifest hash and leakage audit before running B0-B4."
+    },
+    {
+      "freeze_id": "FREEZE-AI-RC1",
+      "checkpoint": "CP-04.6",
+      "status": "planned",
+      "locked_at": null,
+      "config_path": null,
+      "git_commit": null,
+      "notes": "Lock primary AI model revisions, chunking/alignment, thresholds, and review policy on dev before CP-06.1 final test."
+    }
+  ],
+  "experiments": [
+    {
+      "id": "B0",
+      "category": "baseline",
+      "checkpoint": "CP-00.1 / CP-03.5",
+      "status": "captured_cpu_snapshot_pending_dev_benchmark",
+      "config_ref": "configs/baseline_b0.json",
+      "description": "Original v2 pipeline (unfiltered 90/20 chunks online, BGE-M3 dense top_k=6 + pg_trgm top_k=6, RRF fused_k=5, prefilter dense>=0.48|lex>=0.25, bge-reranker-v2-m3, heuristic decision, adjacent chunk grouping).",
+      "research_question": "RQ1, RQ2, RQ3 reference baseline"
+    },
+    {
+      "id": "B1",
+      "category": "baseline",
+      "checkpoint": "CP-03.5",
+      "status": "planned",
+      "config_ref": null,
+      "description": "Lexical-only baseline (pg_trgm / BM25) on block-cleaned corpus without dense retrieval or cross-encoder.",
+      "research_question": "RQ2"
+    },
+    {
+      "id": "B2",
+      "category": "baseline",
+      "checkpoint": "CP-03.5",
+      "status": "planned",
+      "config_ref": null,
+      "description": "Dense-only baseline (BAAI/bge-m3 exact cosine) without lexical branch or cross-encoder.",
+      "research_question": "RQ2"
+    },
+    {
+      "id": "B3",
+      "category": "baseline",
+      "checkpoint": "CP-03.5",
+      "status": "planned",
+      "config_ref": null,
+      "description": "Hybrid RRF baseline (lexical + BAAI/bge-m3 dense) without cross-encoder reranking.",
+      "research_question": "RQ2"
+    },
+    {
+      "id": "B4",
+      "category": "baseline",
+      "checkpoint": "CP-03.5",
+      "status": "planned",
+      "config_ref": null,
+      "description": "Hybrid RRF + BAAI/bge-reranker-v2-m3 on block-filtered corpus prior to CP-04 K-sweep and sentence/span alignment.",
+      "research_question": "RQ1, RQ2"
+    },
+    {
+      "id": "EXP-04.1-RETRIEVAL",
+      "category": "core_upgrade",
+      "checkpoint": "CP-04.1",
+      "status": "planned",
+      "config_ref": null,
+      "description": "Sweep top_k, fused_k, prefilter removal/tuning, and sentence/paragraph chunking trade-offs against Recall@K and rerank latency.",
+      "research_question": "RQ2"
+    },
+    {
+      "id": "EXP-04.2-ALIGNMENT",
+      "category": "core_upgrade",
+      "checkpoint": "CP-04.2",
+      "status": "planned",
+      "config_ref": null,
+      "description": "Constrained local sentence/span alignment (one-to-many, overlap deduplication, multi-source separation) vs B0 adjacent chunk grouping.",
+      "research_question": "RQ2"
+    },
+    {
+      "id": "EXP-04.3-CITATION",
+      "category": "core_upgrade",
+      "checkpoint": "CP-04.3",
+      "status": "planned",
+      "config_ref": null,
+      "description": "Citation marker & reference-link context annotation (present/absent/uncertain) kept orthogonal to text reuse label.",
+      "research_question": "RQ3"
+    },
+    {
+      "id": "EXP-04.4-CLASSIFIER",
+      "category": "core_upgrade",
+      "checkpoint": "CP-04.4",
+      "status": "planned",
+      "config_ref": null,
+      "description": "Heuristic vs Reranker-only vs Calibrated Logistic Regression + needs-human-review decision policy on shared dev candidates.",
+      "research_question": "RQ3"
+    },
+    {
+      "id": "EXP-04.5-ABLATION",
+      "category": "ablation",
+      "checkpoint": "CP-04.5",
+      "status": "planned",
+      "config_ref": null,
+      "description": "Systematic leave-one-out ablation (section filter, chunk/alignment, citation context, K/prefilter) across VI-VI, VI-EN/EN-VI, paraphrase, multi-source, boilerplate, and out-of-corpus slices.",
+      "research_question": "RQ1, RQ2, RQ3"
+    },
+    {
+      "id": "EXT-01-MODEL-COMP",
+      "category": "conditional_extension",
+      "checkpoint": "EXT-01",
+      "status": "conditional_backlog",
+      "config_ref": null,
+      "description": "Controlled comparison against Qwen3-Embedding-0.6B or BGE-M3 sparse branch on identical split/evaluator after CP-04 freeze.",
+      "research_question": "RQ2 (extension)"
+    },
+    {
+      "id": "EXT-02-OCR",
+      "category": "conditional_extension",
+      "checkpoint": "EXT-02",
+      "status": "conditional_backlog",
+      "config_ref": null,
+      "description": "Selective OCR routing for low-text/scanned PDF pages with coordinate preservation and CER/span quality reporting.",
+      "research_question": "RQ1 (extension)"
+    },
+    {
+      "id": "EXT-03-FINETUNE",
+      "category": "conditional_extension",
+      "checkpoint": "EXT-03",
+      "status": "conditional_backlog",
+      "config_ref": null,
+      "description": "Controlled LoRA/hard-negative fine-tuning only if independent labels are sufficient and error analysis confirms domain gap.",
+      "research_question": "RQ2 (extension)"
+    }
+  ]
+}
+
