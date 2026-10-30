@@ -1,30 +1,77 @@
+from __future__ import annotations
+
 import difflib
 import hashlib
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import pymupdf
 from docx import Document
+from docx.table import Table
+from docx.text.paragraph import Paragraph
+
+
+@dataclass
+class DocumentBlock:
+    """A distinct structural block in a document (paragraph, table row/cell, heading, etc.)."""
+
+    block_index: int
+    block_type: str  # "paragraph", "table", "heading", "header", "footer"
+    page_number: int | None  # 1-based page number for PDF, None for DOCX (no fake page numbers)
+    paragraph_index: int | None  # 0-based paragraph index for DOCX, None for PDF/tables
+    raw_text: str  # Raw text as extracted from source
+    text: str  # Normalized text
+    section_type: str = "body"  # "cover", "table_of_contents", "abbreviations", "body", "references", "appendix", "empty"
+    start_char_offset: int = 0  # Start character offset in section/page text
+    end_char_offset: int = 0  # End character offset in section/page text
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_mapping_dict(self) -> dict[str, Any]:
+        return {
+            "block_index": self.block_index,
+            "block_type": self.block_type,
+            "page_number": self.page_number,
+            "paragraph_index": self.paragraph_index,
+            "section_type": self.section_type,
+            "start_char_offset": self.start_char_offset,
+            "end_char_offset": self.end_char_offset,
+        }
 
 
 @dataclass
 class TextPage:
+    """Logical page or section grouping for chunking and display."""
+
     page_number: int | None
     text: str
     section_type: str = "body"
+    blocks: list[DocumentBlock] = field(default_factory=list)
 
 
 @dataclass
 class Chunk:
+    """A sliding window text chunk with bidirectional block & section location mapping."""
+
     chunk_no: int
-    page_number: int | None
-    start_offset: int
-    end_offset: int
+    page_number: int | None  # 1-based for PDF, None for DOCX
+    start_offset: int  # Character start offset in the section/page text
+    end_offset: int  # Character end offset in the section/page text
     text: str
     section_type: str = "body"
+    # Bidirectional location mappings (CP-02.1)
+    start_block_index: int | None = None
+    end_block_index: int | None = None
+    start_paragraph_index: int | None = None  # For DOCX
+    end_paragraph_index: int | None = None  # For DOCX
+    page_start: int | None = None  # For multi-page or PDF
+    page_end: int | None = None
+    block_mapping: list[dict[str, Any]] = field(default_factory=list)
 
+
+# --- Section Classification Regular Expressions ---
 
 RX_COVER_HEADER = re.compile(
     r"^(?:đại học quốc gia|bộ giáo dục(?: và đào tạo)?|trường đại học|university of|vietnam national university)\b",
@@ -51,6 +98,14 @@ RX_TABLE_STRUCT = re.compile(
     r"(?:\bstt\b.{0,60}(?:kiểu dữ liệu|thuộc tính|ràng buộc|mô tả|diễn giải)|\bbảng\s+\d+(?:[.\-]\d+){0,3}\s*:\s*bảng\b)",
     re.I,
 )
+RX_CHAPTER_HEADER = re.compile(
+    r"^(?:chương\s+\d+|chương\s+[ivxlcdm]+|phần\s+\d+|chapter\s+\d+|mở đầu|giới thiệu|lời cảm ơn|lời cam đoan|tóm tắt|abstract)\b",
+    re.I,
+)
+RX_APPENDIX_HEADER = re.compile(
+    r"^(?:phụ lục|appendix)\b",
+    re.I,
+)
 RX_TITLE = re.compile(
     r"(?:ĐỀ TÀI|Đề tài|ĐỀ TÀI:|Đề tài:)[\s\n]+(.*?)(?=\s+(?:Building|Developing|Applying|Researching|Design|Constructing|An |A |CỬ NHÂN|KỸ SƯ|GIẢNG VIÊN|GVHD|TP\.|THÀNH PHỐ|\d{4}|$))",
     re.I | re.DOTALL,
@@ -66,10 +121,12 @@ RX_AUTHORS = re.compile(
 
 
 def normalize(text: str) -> str:
+    """Normalize whitespace and clean text."""
     return re.sub(r"\s+", " ", text).strip()
 
 
 def classify_text_section(text: str, page_number: int | None = None) -> str:
+    """Classify the structural section type of a given text segment."""
     s = unicodedata.normalize("NFKC", text or "").strip()
     s_lower = s.casefold()
     if not s_lower:
@@ -89,7 +146,7 @@ def classify_text_section(text: str, page_number: int | None = None) -> str:
         return "abbreviations"
     if RX_BIB_HEADER.search(s_lower[:120]) or (
         len(re.findall(r"\[\s*\d+\s*\]", s)) >= 3
-        and len(re.findall(r"https?://|\baccessed\b|\bavailable\b", s_lower)) >= 2
+        and len(re.findall(r"https?://|\baccessed\b|\bavailable\b", s_lower)) >= 1
     ):
         return "references"
     if RX_TOC_HEADER.search(s_lower[:120]) or (
@@ -102,34 +159,369 @@ def classify_text_section(text: str, page_number: int | None = None) -> str:
     return "body"
 
 
-def extract_pages(path: str) -> list[TextPage]:
+def _classify_docx_blocks_statefully(blocks: list[DocumentBlock]) -> None:
+    """Classify section types for DOCX blocks using document structure sequence analysis."""
+    state = "init"
+    for i, block in enumerate(blocks):
+        norm = block.text
+        norm_l = norm.casefold()
+        if not norm_l:
+            block.section_type = "empty"
+            continue
+
+        if state in ("init", "cover"):
+            is_cover_element = (
+                i <= 20
+                and (
+                    RX_COVER_HEADER.search(norm_l[:250])
+                    or RX_COVER_KEYWORDS.search(norm_l[:250])
+                    or ("khoa công nghệ phần mềm" in norm_l[:250] and "khóa luận" in norm_l)
+                    or ("sinh viên thực hiện" in norm_l or "giảng viên hướng dẫn" in norm_l)
+                    or ("bộ môn" in norm_l and "trường đại học" in norm_l)
+                )
+            )
+            if is_cover_element:
+                state = "cover"
+                block.section_type = "cover"
+                continue
+
+            if RX_TOC_HEADER.search(norm_l[:120]) or len(RX_TOC_DOTS.findall(norm)) >= 2:
+                state = "table_of_contents"
+                block.section_type = "table_of_contents"
+                continue
+
+            if RX_ABBR_HEADER.search(norm_l[:120]):
+                state = "abbreviations"
+                block.section_type = "abbreviations"
+                continue
+
+            if RX_CHAPTER_HEADER.search(norm_l[:120]) or (
+                state == "cover" and len(norm.split()) >= 30 and not is_cover_element
+            ):
+                state = "body"
+                block.section_type = "body"
+                continue
+
+            if state == "init":
+                state = "body"
+                block.section_type = "body"
+            else:
+                if len(norm.split()) < 20 and i <= 15:
+                    block.section_type = "cover"
+                else:
+                    state = "body"
+                    block.section_type = "body"
+
+        elif state == "table_of_contents":
+            if RX_CHAPTER_HEADER.search(norm_l[:120]) or (
+                len(RX_TOC_DOTS.findall(norm)) == 0 and len(norm.split()) >= 25
+            ):
+                state = "body"
+                block.section_type = "body"
+            else:
+                block.section_type = "table_of_contents"
+
+        elif state == "abbreviations":
+            if RX_CHAPTER_HEADER.search(norm_l[:120]) or len(norm.split()) >= 30:
+                state = "body"
+                block.section_type = "body"
+            else:
+                block.section_type = "abbreviations"
+
+        elif state == "body":
+            if RX_BIB_HEADER.search(norm_l[:120]) or (
+                len(re.findall(r"\[\s*\d+\s*\]", norm)) >= 3
+                and len(re.findall(r"https?://|\baccessed\b|\bavailable\b|\btrans\b|\bvol\b", norm_l)) >= 1
+            ):
+                state = "references"
+                block.section_type = "references"
+            elif RX_APPENDIX_HEADER.search(norm_l[:120]):
+                state = "appendix"
+                block.section_type = "appendix"
+            elif RX_TABLE_STRUCT.search(norm_l[:350]):
+                block.section_type = "structured_table"
+            else:
+                block.section_type = "body"
+
+        elif state == "references":
+            if RX_APPENDIX_HEADER.search(norm_l[:120]):
+                state = "appendix"
+                block.section_type = "appendix"
+            else:
+                block.section_type = "references"
+
+        elif state == "appendix":
+            block.section_type = "appendix"
+
+
+def extract_table_text(table: Table) -> tuple[str, str]:
+    """Extract raw and normalized text from a Word table."""
+    raw_rows: list[str] = []
+    norm_rows: list[str] = []
+    for row in table.rows:
+        cell_texts = [c.text.strip() for c in row.cells]
+        unique_cells: list[str] = []
+        for ct in cell_texts:
+            if not unique_cells or ct != unique_cells[-1]:
+                unique_cells.append(ct)
+        if any(unique_cells):
+            raw_rows.append(" | ".join(unique_cells))
+            norm_rows.append(" | ".join(normalize(c) for c in unique_cells if c))
+    return "\n".join(raw_rows), "\n".join(norm_rows)
+
+
+def _detect_pdf_repeating_headers_footers(pdf_doc) -> tuple[set[str], set[str]]:
+    """Detect repeated header and footer text lines across multi-page PDFs."""
+    if len(pdf_doc) < 3:
+        return set(), set()
+    top_candidates: dict[str, int] = {}
+    bottom_candidates: dict[str, int] = {}
+    for page in pdf_doc:
+        height = page.rect.height
+        blocks = page.get_text("blocks")
+        for b in blocks:
+            if b[6] != 0:
+                continue
+            text = normalize(b[4])
+            if not text or len(text) < 3:
+                continue
+            y0, y1 = b[1], b[3]
+            if y1 <= 75:
+                top_candidates[text] = top_candidates.get(text, 0) + 1
+            elif y0 >= height - 70:
+                bottom_candidates[text] = bottom_candidates.get(text, 0) + 1
+
+    headers = {text for text, count in top_candidates.items() if count >= 2}
+    footers = {text for text, count in bottom_candidates.items() if count >= 2}
+    return headers, footers
+
+
+def extract_blocks(path: str | Path) -> list[DocumentBlock]:
+    """Extract all structural document blocks in logical reading order.
+
+    - For DOCX: Extracts each paragraph and table element; strictly page_number=None.
+    - For PDF: Extracts text blocks per page with coordinates and reading order.
+    """
     file = Path(path)
-    if file.suffix.lower() == ".pdf":
+    if not file.exists():
+        raise FileNotFoundError(f"File not found: {file}")
+
+    ext = file.suffix.lower()
+    if ext == ".docx":
+        doc = Document(str(file))
+        blocks: list[DocumentBlock] = []
+        block_idx = 0
+        paragraph_idx = 0
+        total_len = 0
+
+        for child in doc.element.body:
+            tag = child.tag.split("}")[-1]
+            if tag == "p":
+                p = Paragraph(child, doc)
+                raw_text = p.text
+                norm_text = normalize(raw_text)
+                if not norm_text:
+                    paragraph_idx += 1
+                    continue
+                total_len += len(norm_text)
+                if total_len > 2_000_000:
+                    raise ValueError("DOCUMENT_TOO_LONG")
+                blocks.append(
+                    DocumentBlock(
+                        block_index=block_idx,
+                        block_type="paragraph",
+                        page_number=None,  # Do not assign fake page numbers to DOCX
+                        paragraph_index=paragraph_idx,
+                        raw_text=raw_text,
+                        text=norm_text,
+                    )
+                )
+                block_idx += 1
+                paragraph_idx += 1
+
+            elif tag == "tbl":
+                tbl = Table(child, doc)
+                raw_tbl, norm_tbl = extract_table_text(tbl)
+                if not norm_tbl:
+                    continue
+                total_len += len(norm_tbl)
+                if total_len > 2_000_000:
+                    raise ValueError("DOCUMENT_TOO_LONG")
+                blocks.append(
+                    DocumentBlock(
+                        block_index=block_idx,
+                        block_type="table",
+                        page_number=None,
+                        paragraph_index=None,
+                        raw_text=raw_tbl,
+                        text=norm_tbl,
+                    )
+                )
+                block_idx += 1
+
+        _classify_docx_blocks_statefully(blocks)
+        return blocks
+
+    if ext == ".pdf":
+        blocks: list[DocumentBlock] = []
+        block_idx = 0
         with pymupdf.open(str(file)) as pdf:
             if len(pdf) > 250:
                 raise ValueError("TOO_MANY_PAGES")
-            pages: list[TextPage] = []
+
+            headers, footers = _detect_pdf_repeating_headers_footers(pdf)
+
             for i, page in enumerate(pdf):
                 page_num = i + 1
-                norm_text = normalize(page.get_text("text", sort=True))
-                section_type = classify_text_section(norm_text, page_number=page_num)
-                pages.append(
-                    TextPage(
-                        page_number=page_num,
-                        text=norm_text,
-                        section_type=section_type,
+                page_blocks = page.get_text("blocks")
+                # Sort blocks by vertical position y0, then horizontal x0 (reading order)
+                text_blocks = [b for b in page_blocks if b[6] == 0]
+                text_blocks.sort(key=lambda b: (b[1], b[0]))
+
+                if not text_blocks:
+                    # Empty page
+                    blocks.append(
+                        DocumentBlock(
+                            block_index=block_idx,
+                            block_type="empty_page",
+                            page_number=page_num,
+                            paragraph_index=None,
+                            raw_text="",
+                            text="",
+                            section_type="empty",
+                        )
                     )
+                    block_idx += 1
+                    continue
+
+                for b in text_blocks:
+                    raw_text = b[4]
+                    norm_text = normalize(raw_text)
+                    if not norm_text:
+                        continue
+
+                    # Check for repeating header or footer
+                    if norm_text in headers or (b[3] <= 70 and len(norm_text.split()) < 15 and "trường" in norm_text.casefold()):
+                        b_type = "header"
+                        sec_type = "header"
+                    elif norm_text in footers or re.match(r"^\s*(?:trang\s+)?\d+\s*(?:/\s*\d+)?\s*$", norm_text, re.I):
+                        b_type = "footer"
+                        sec_type = "footer"
+                    else:
+                        b_type = "paragraph"
+                        sec_type = classify_text_section(norm_text, page_number=page_num)
+
+                    blocks.append(
+                        DocumentBlock(
+                            block_index=block_idx,
+                            block_type=b_type,
+                            page_number=page_num,
+                            paragraph_index=None,
+                            raw_text=raw_text,
+                            text=norm_text,
+                            section_type=sec_type,
+                            metadata={"bbox": (b[0], b[1], b[2], b[3])},
+                        )
+                    )
+                    block_idx += 1
+
+        return blocks
+
+    raise ValueError("Only PDF and DOCX are supported")
+
+
+def extract_pages(path: str | Path) -> list[TextPage]:
+    """Extract pages or structural sections from a document with full block traceability.
+
+    - For PDF: Returns one TextPage per PDF page (page_number=1..N).
+    - For DOCX: Groups contiguous blocks into logical sections (cover, body, references),
+      guaranteeing that a cover page never swallows the rest of the body. page_number is None.
+    """
+    file = Path(path)
+    blocks = extract_blocks(file)
+
+    if file.suffix.lower() == ".pdf":
+        pages_dict: dict[int, list[DocumentBlock]] = {}
+        for b in blocks:
+            p_num = b.page_number or 1
+            pages_dict.setdefault(p_num, []).append(b)
+
+        result: list[TextPage] = []
+        for p_num in sorted(pages_dict.keys()):
+            p_blocks = pages_dict[p_num]
+            # Exclude header/footer blocks from the primary text string to avoid false positives
+            content_blocks = [b for b in p_blocks if b.block_type not in ("header", "footer")]
+            if not content_blocks:
+                content_blocks = p_blocks
+
+            # Determine dominant section type
+            sec_types = [b.section_type for b in content_blocks if b.section_type not in ("empty", "header", "footer")]
+            dominant_section = sec_types[0] if sec_types else (content_blocks[0].section_type if content_blocks else "body")
+
+            current_offset = 0
+            text_parts = []
+            for b in content_blocks:
+                b.start_char_offset = current_offset
+                b.end_char_offset = current_offset + len(b.text)
+                text_parts.append(b.text)
+                current_offset = b.end_char_offset + 1  # Separator " " length 1
+
+            page_text = " ".join(text_parts)
+            result.append(
+                TextPage(
+                    page_number=p_num,
+                    text=page_text,
+                    section_type=dominant_section,
+                    blocks=content_blocks,
                 )
-            return pages
+            )
+        return result
 
     if file.suffix.lower() == ".docx":
-        doc = Document(str(file))
-        paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-        if sum(len(p) for p in paragraphs) > 2_000_000:
-            raise ValueError("DOCUMENT_TOO_LONG")
-        norm_text = normalize("\n".join(paragraphs))
-        section_type = classify_text_section(norm_text, page_number=1)
-        return [TextPage(None, norm_text, section_type=section_type)]
+        # Group contiguous blocks by section_type
+        sections: list[list[DocumentBlock]] = []
+        current_section: list[DocumentBlock] = []
+        current_sec_type: str | None = None
+
+        for b in blocks:
+            if b.section_type == "empty":
+                continue
+            if current_sec_type is None:
+                current_sec_type = b.section_type
+                current_section.append(b)
+            elif b.section_type == current_sec_type:
+                current_section.append(b)
+            else:
+                sections.append(current_section)
+                current_section = [b]
+                current_sec_type = b.section_type
+        if current_section:
+            sections.append(current_section)
+
+        if not sections:
+            return []
+
+        result = []
+        for sec_blocks in sections:
+            sec_type = sec_blocks[0].section_type
+            current_offset = 0
+            text_parts = []
+            for b in sec_blocks:
+                b.start_char_offset = current_offset
+                b.end_char_offset = current_offset + len(b.text)
+                text_parts.append(b.text)
+                current_offset = b.end_char_offset + 1
+
+            sec_text = " ".join(text_parts)
+            result.append(
+                TextPage(
+                    page_number=None,  # DOCX strictly has no fake page numbers
+                    text=sec_text,
+                    section_type=sec_type,
+                    blocks=sec_blocks,
+                )
+            )
+        return result
 
     raise ValueError("Only PDF and DOCX are supported")
 
@@ -141,14 +533,22 @@ def make_chunks(
     min_words: int = 8,
     exclude_sections: set[str] | tuple[str, ...] | None = None,
 ) -> list[Chunk]:
+    """Generate sliding window chunks with strict offset and block-level location mapping."""
     if not (0 <= overlap < size):
         raise ValueError("overlap must be smaller than size")
 
     excluded = set(exclude_sections) if exclude_sections else set()
     result: list[Chunk] = []
     chunk_no = 0
+
     for page in pages:
+        if page.section_type in excluded:
+            continue
+
         spans = list(re.finditer(r"\S+", page.text))
+        if not spans:
+            continue
+
         for first in range(0, len(spans), size - overlap):
             last = min(first + size, len(spans))
             if last - first < min_words:
@@ -158,13 +558,48 @@ def make_chunks(
             chunk_text = page.text[start:end]
 
             chunk_section = page.section_type
-            if chunk_section == "body" and page.page_number is None:
+            if chunk_section == "body" and page.page_number is None and not page.blocks:
                 detected = classify_text_section(chunk_text, page_number=None)
                 if detected != "body":
                     chunk_section = detected
 
             if chunk_section in excluded:
                 continue
+
+            # Bidirectional block mapping
+            start_block_idx: int | None = None
+            end_block_idx: int | None = None
+            start_para_idx: int | None = None
+            end_para_idx: int | None = None
+            page_start: int | None = page.page_number
+            page_end: int | None = page.page_number
+            mapping_records: list[dict[str, Any]] = []
+
+            if page.blocks:
+                # Find all blocks overlapping with [start, end)
+                overlapping = [
+                    b
+                    for b in page.blocks
+                    if max(start, b.start_char_offset) < min(end, b.end_char_offset)
+                ]
+                if not overlapping:
+                    # Fallback to closest block
+                    overlapping = [min(page.blocks, key=lambda b: abs(b.start_char_offset - start))]
+
+                start_block_idx = overlapping[0].block_index
+                end_block_idx = overlapping[-1].block_index
+
+                para_indices = [b.paragraph_index for b in overlapping if b.paragraph_index is not None]
+                if para_indices:
+                    start_para_idx = min(para_indices)
+                    end_para_idx = max(para_indices)
+
+                page_nums = [b.page_number for b in overlapping if b.page_number is not None]
+                if page_nums:
+                    page_start = min(page_nums)
+                    page_end = max(page_nums)
+
+                mapping_records = [b.to_mapping_dict() for b in overlapping]
 
             result.append(
                 Chunk(
@@ -174,11 +609,19 @@ def make_chunks(
                     end_offset=end,
                     text=chunk_text,
                     section_type=chunk_section,
+                    start_block_index=start_block_idx,
+                    end_block_index=end_block_idx,
+                    start_paragraph_index=start_para_idx,
+                    end_paragraph_index=end_para_idx,
+                    page_start=page_start,
+                    page_end=page_end,
+                    block_mapping=mapping_records,
                 )
             )
             chunk_no += 1
             if last == len(spans):
                 break
+
     return result
 
 
@@ -186,17 +629,16 @@ def extract_document_metadata(
     path: str | Path,
     pages: list[TextPage] | None = None,
 ) -> dict[str, str]:
+    """Extract core document metadata (title, authors, cover prefix, SHA-256)."""
     path = Path(path)
     if pages is None:
         if path.suffix.lower() == ".pdf":
-            with pymupdf.open(str(path)) as pdf:
-                pages = [TextPage(1, normalize(pdf[0].get_text("text", sort=True)))] if len(pdf) > 0 else []
+            pages = extract_pages(path)[:2]
         elif path.suffix.lower() == ".docx":
-            doc = Document(str(path))
-            paras = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-            pages = [TextPage(None, normalize(" ".join(paras[:25])))]
+            pages = extract_pages(path)[:2]
         else:
             pages = []
+
     full_text = " ".join(p.text for p in pages)
     cover = pages[0].text[:1500] if pages else ""
 
@@ -230,6 +672,7 @@ def extract_document_metadata(
 def is_duplicate_document(
     meta1: dict[str, str], meta2: dict[str, str]
 ) -> tuple[bool, str]:
+    """Determine whether two documents represent duplicate submissions."""
     if meta1.get("text_sha256") and meta1["text_sha256"] == meta2.get("text_sha256"):
         return True, "SAME_TEXT_HASH"
 

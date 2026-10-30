@@ -80,7 +80,7 @@ Mẫu execution log:
 
 **Mục tiêu:** đầu vào đúng và evidence có thể truy vết trước khi tăng độ phức tạp mô hình. **Dự kiến:** 38 giờ, tuần 2. **Phụ thuộc:** CP-01; có thể chuẩn bị fixture khi chờ deploy.
 
-- [ ] **CP-02.1 — Sửa parser theo block và giữ ánh xạ vị trí.**
+- [x] **CP-02.1 — Sửa parser theo block và giữ ánh xạ vị trí.**
   - Làm: DOCX giữ paragraph/block thay vì một TextPage toàn văn; PDF giữ page/block/read order; lưu raw/normalized text và mapping. Tạo fixture cover + body + references, header/footer lặp, bảng và trang rỗng. Ghi phạm vi hỗ trợ; không gán số trang giả cho DOCX.
   - Đầu ra: parser version mới, fixtures và regression tests.
   - Hoàn tất khi: body không mất vì cover; đoạn evidence ánh xạ được về vị trí gốc; lỗi/trang thiếu text không bị báo thành “không có trùng lặp”.
