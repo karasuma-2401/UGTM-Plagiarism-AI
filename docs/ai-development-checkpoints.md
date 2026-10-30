@@ -157,17 +157,17 @@ Mẫu execution log:
   - Đầu ra: citation metadata/schema và test có/không/mơ hồ về trích dẫn.
   - Hoàn tất khi: có citation không làm evidence biến mất; hệ thống không tự kết luận trích dẫn hợp lệ chỉ vì thấy dấu [n].
 
-- [ ] **CP-04.4 — Đánh giá classifier, calibration và chính sách review.**
+- [x] **CP-04.4 — Đánh giá classifier, calibration và chính sách review.**
   - Làm: so heuristic, reranker-only, LR trên cùng candidate set; chọn threshold trên dev theo precision–recall; thử calibration khi đủ dữ liệu và kiểm tra calibration độc lập. Thêm trạng thái cần người xem xét khi thiếu bằng chứng, không giả lập confidence từ score không hiệu chỉnh.
   - Đầu ra: model/manifest version, calibration plots nếu áp dụng, decision policy và quyết định bật/tắt classifier.
   - Hoàn tất khi: có lý do bằng dữ liệu cho model được chọn; feature definition offline/online đồng nhất; chưa đạt thì classifier được giữ tắt nhưng thí nghiệm và phân tích vẫn hoàn tất.
 
-- [ ] **CP-04.5 — Chạy robustness và ablation đầy đủ.**
+- [x] **CP-04.5 — Chạy robustness và ablation đầy đủ.**
   - Làm: bỏ lần lượt section filtering, chunk/alignment cải tiến, citation context và thay K/prefilter; đo riêng VI–VI, dịch hai chiều, paraphrase, multi-source, boilerplate và nguồn vắng mặt. Citation ablation đo cả khối lượng review, không đổi ground truth reuse để tạo mức tăng giả.
   - Đầu ra: ablation table, slice metrics, evidence về các ca thất bại.
   - Hoàn tất khi: biết thành phần nào tăng chất lượng, tăng chi phí hoặc gây lỗi; mọi kết luận có run đối chứng và không chỉ dựa trên demo chọn sẵn.
 
-- [ ] **CP-04.6 — Freeze phương án AI chính.**
+- [x] **CP-04.6 — Freeze phương án AI chính.**
   - Làm: chọn model/config/policy từ dev; khóa model revisions, parser/chunker, thresholds và corpus snapshot; lập danh sách hạn chế. Đánh giá điều kiện làm EXT-01/02/03, ghi decision và thời gian cần thêm; không thay thế phần cốt lõi bằng thử model mới.
   - Đầu ra: release candidate AI manifest và experiment decision log.
   - Hoàn tất khi: bộ cấu hình chuẩn duy nhất được dùng cho test cuối; kết quả âm và phần chưa giải được được giữ trong báo cáo.

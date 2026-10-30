@@ -237,11 +237,12 @@ def scan_document(job_id: str):
                     review = (
                         result["score"] >= result["threshold"]
                         or lexical >= 0.92
+                        or result.get("needs_human_review", False)
                     )
                     decision_source = (
                         "near_exact_override"
                         if lexical >= 0.92
-                        else "custom_classifier"
+                        else result.get("decision_source", "custom_classifier")
                     )
                 if not review:
                     continue

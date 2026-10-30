@@ -56,6 +56,39 @@ def load_classifier():
     return model, manifest
 
 
+def apply_review_policy(
+    score: float,
+    threshold: float = 0.14,
+    tau_low: float = 0.30,
+    tau_high: float = 0.70,
+) -> dict:
+    """Evaluate decision policy and human review requirements based on calibrated confidence."""
+    if score >= tau_high:
+        return {
+            "flagged": True,
+            "needs_human_review": True,
+            "decision_source": "calibrated_classifier_high_confidence",
+            "confidence_band": "high_confidence",
+            "reason": "Calibrated probability exceeds high-confidence threshold (P >= 0.70).",
+        }
+    elif score >= tau_low:
+        return {
+            "flagged": True,
+            "needs_human_review": True,
+            "decision_source": "uncertainty_band",
+            "confidence_band": "uncertainty_band",
+            "reason": "Probability falls in ambiguous calibration zone [0.30, 0.70); requires evaluator verification.",
+        }
+    else:
+        return {
+            "flagged": score >= threshold,
+            "needs_human_review": False,
+            "decision_source": "calibrated_classifier_low_confidence",
+            "confidence_band": "low_confidence",
+            "reason": "Calibrated probability falls below uncertainty band (P < 0.30).",
+        }
+
+
 def score_candidate(features: dict):
     if not settings.classifier_enabled:
         return None
@@ -63,8 +96,18 @@ def score_candidate(features: dict):
     # predict_proba là điểm mô hình trên dữ liệu huấn luyện, KHÔNG phải
     # xác suất vi phạm quy chế hay đạo văn trong thực tế.
     score = float(model.predict_proba([feature_vector(features)])[0, 1])
+    threshold = float(manifest["threshold"])
+    bands = manifest.get("decision_bands", {})
+    tau_low = float(bands.get("tau_low", 0.30))
+    tau_high = float(bands.get("tau_high", 0.70))
+    policy = apply_review_policy(score, threshold, tau_low, tau_high)
+
     return {
         "score": score,
-        "threshold": float(manifest["threshold"]),
+        "threshold": threshold,
         "version": str(manifest["model_version"]),
+        "needs_human_review": policy["needs_human_review"],
+        "decision_source": policy["decision_source"],
+        "confidence_band": policy["confidence_band"],
+        "policy": policy,
     }
