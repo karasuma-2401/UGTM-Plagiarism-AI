@@ -68,15 +68,25 @@ def test_enqueue_task_publishes_to_redis_broker():
     new_len = r.llen("celery")
     assert new_len >= initial_len + 1
 
-    # Pop message to verify its content and cleanup
-    popped = r.rpop("celery")
-    assert popped is not None
-    payload = json.loads(popped.decode("utf-8"))
-    headers = payload.get("headers", {})
+    # Look for our published task message in the queue
+    found_payload = None
+    messages = r.lrange("celery", 0, -1)
+    for raw in messages:
+        try:
+            item = json.loads(raw.decode("utf-8"))
+            if item.get("headers", {}).get("id") == result.id:
+                found_payload = item
+                r.lrem("celery", 1, raw)
+                break
+        except Exception:
+            continue
+
+    assert found_payload is not None, f"Published task {result.id} not found in Redis queue"
+    headers = found_payload.get("headers", {})
 
     # In modern Celery, task name is in headers or body
-    assert headers.get("task") == "app.tasks.scan_document" or payload.get("task") == "app.tasks.scan_document"
-    args = headers.get("argsrepr") or str(payload.get("body", ""))
+    assert headers.get("task") == "app.tasks.scan_document" or found_payload.get("task") == "app.tasks.scan_document"
+    args = headers.get("argsrepr") or str(found_payload.get("body", ""))
     assert fake_job_id in args
 
 

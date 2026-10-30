@@ -170,9 +170,8 @@ def index_page():
 
 @app.get("/api/v1/client-config")
 def client_config():
-    """Cung cấp cấu hình cho Web Dashboard khi chạy nội bộ."""
+    """Cung cấp cấu hình cho Web Dashboard khi chạy nội bộ (không lộ secret)."""
     return {
-        "api_key": settings.api_key,
         "default_corpus": "uit_thesis",
         "embedding_model": settings.embedding_model,
         "reranker_model": settings.reranker_model,
@@ -180,7 +179,6 @@ def client_config():
         "max_upload_mb": settings.max_upload_mb,
         "inference_mode": settings.inference_mode,
         "storage_backend": settings.effective_storage_backend,
-        "remote_gpu_url": settings.remote_gpu_url,
         "remote_gpu_enabled": bool(settings.remote_gpu_url),
     }
 

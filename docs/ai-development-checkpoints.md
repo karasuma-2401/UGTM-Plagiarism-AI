@@ -64,12 +64,12 @@ Mẫu execution log:
   - Đầu ra: storage adapter, schema object reference, chính sách quyền và cleanup.
   - Hoàn tất khi: API và worker ở hai máy vẫn quét được cùng file; redeploy không mất nguồn/report/artifact. URL có hạn phải tạo lại được khi retry.
 
-- [ ] **CP-01.5 — Chuẩn hóa Colab Remote GPU Inference Worker.**
+- [x] **CP-01.5 — Chuẩn hóa Colab Remote GPU Inference Worker.**
   - Làm: hoàn thiện `notebooks/colab_gpu_worker.ipynb`; xác nhận quyền lợi Colab trên tài khoản đang dùng; pin model/revision; chuẩn hóa `/health`, `/encode`, `/rerank` cùng auth, batch cap, timeout, vector dimension và output count. Ghi loại GPU/RAM thực nhận. Chọn transport phù hợp điều kiện tài khoản, có bước cấu hình lại endpoint sau restart.
   - Đầu ra: notebook tái chạy được, inference contract, remote client và endpoint configuration guide.
   - Hoàn tất khi: Render/CPU worker gọi encode và rerank thành công, sai token bị từ chối, sai revision/shape/NaN bị phát hiện; Colab không cần DB credential chính. Nếu transport chưa hoạt động, giữ task blocked và ghi bằng chứng, không gọi mô phỏng là remote inference thật.
 
-- [ ] **CP-01.6 — Smoke test xuyên luồng và loại bỏ secret public.**
+- [x] **CP-01.6 — Smoke test xuyên luồng và loại bỏ secret public.**
   - Làm: bỏ service API key khỏi `client-config`; xác thực API dev bằng cơ chế phù hợp và tách token GPU. Index một nguồn, quét một bài có phần copy đã biết; lưu request IDs, thời gian từng bước và report. Tắt Colab để xác minh lỗi compute được báo rõ; cơ chế resume hoàn thiện ở CP-05.
   - Đầu ra: `docs/dev-environment-smoke-test.md` với thông tin môi trường và kết quả test, không ghi secret.
   - Hoàn tất khi: có report từ pipeline thật trên Neon + Render + Colab, không lộ key qua endpoint cấu hình hoặc log.

@@ -1,9 +1,14 @@
 import os
+import sys
 from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from dotenv import dotenv_values
 
-env_path = Path(__file__).resolve().parent.parent / ".env"
+env_path = PROJECT_ROOT / ".env"
 if env_path.is_file():
     for key, val in dotenv_values(env_path).items():
         if val and key not in os.environ:
