@@ -139,6 +139,9 @@ class ReportSummaryModel(BaseModel):
     total_findings: int = Field(ge=0)
     matched_sources: int = Field(ge=0)
     passage_groups: int = Field(ge=0)
+    cited_findings: int = 0
+    uncited_findings: int = 0
+    uncertain_findings: int = 0
 
 
 class FindingItemModel(BaseModel):
@@ -165,8 +168,10 @@ class FindingItemModel(BaseModel):
     classifier_score: float | None = None
     decision_source: str = "heuristic"
     citation_status: str = "unexamined"
+    citation_context: dict[str, Any] | None = None
     feature_values: dict[str, float] | None = None
     review_required: bool = True
+    aligned_spans: list[dict[str, Any]] | None = None
 
 
 class PassageGroupModel(BaseModel):
@@ -258,6 +263,10 @@ def build_report_v3(
         "corpus_snapshot_id": corpus_snapshot_id,
     }
 
+    cited_count = sum(1 for f in grouped_findings if f.get("citation_status") in ("present", "cited"))
+    uncited_count = sum(1 for f in grouped_findings if f.get("citation_status") in ("absent", "uncited"))
+    uncertain_count = sum(1 for f in grouped_findings if f.get("citation_status") in ("uncertain", "unexamined"))
+
     summary = {
         "scanned_chunks": len(query_chunks),
         "scanned_characters": scanned_characters,
@@ -269,6 +278,9 @@ def build_report_v3(
         "total_findings": len(grouped_findings),
         "matched_sources": len(matched_source_keys),
         "passage_groups": len(passage_groups),
+        "cited_findings": cited_count,
+        "uncited_findings": uncited_count,
+        "uncertain_findings": uncertain_count,
     }
 
     total_findings = len(grouped_findings)

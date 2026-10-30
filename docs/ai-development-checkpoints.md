@@ -142,17 +142,17 @@ Mẫu execution log:
 
 **Mục tiêu:** triển khai đầy đủ hướng AI cốt lõi và đo tác động từng thành phần. **Dự kiến:** 42 giờ, tuần 4. **Phụ thuộc:** CP-03.
 
-- [ ] **CP-04.1 — Tối ưu candidate retrieval bằng đo lường.**
+- [x] **CP-04.1 — Tối ưu candidate retrieval bằng đo lường.**
   - Làm: sweep top-k/fused-k, so bỏ/giữ prefilter hiện tại, đo source recall trước và sau từng bước. Thử lexical/BM25 + dense/RRF với sentence/paragraph chunks; tính budget rerank và nguồn trùng giữa chunks.
   - Đầu ra: candidate-recall curves, cấu hình chọn trên dev, latency trade-off.
   - Hoàn tất khi: giải thích được lựa chọn K/threshold; không tối ưu tốc độ bằng loại bỏ nguồn đúng mà không ghi nhận.
 
-- [ ] **CP-04.2 — Nâng passage grouping thành sentence/span alignment.**
+- [x] **CP-04.2 — Nâng passage grouping thành sentence/span alignment.**
   - Làm: trong các cặp ứng viên, match câu/đoạn có ràng buộc và thử căn chỉnh cục bộ; hỗ trợ one-to-many/many-to-one, overlap và multi-source. Giữ thuật toán gộp hiện tại làm baseline; chuyển kết quả về offsets đã chuẩn hóa mapping.
   - Đầu ra: alignment module/version, regression cases, span metrics.
   - Hoàn tất khi: evidence không chỉ là hai chunks cạnh nhau; có đánh giá vị trí đúng/sai, không đếm overlap hai lần và không ép passage khác nguồn vào một nhóm.
 
-- [ ] **CP-04.3 — Bổ sung citation-aware context.**
+- [x] **CP-04.3 — Bổ sung citation-aware context.**
   - Làm: phát hiện citation marker và reference link cơ bản; trả present/absent/uncertain cùng evidence; phân biệt phát hiện citation với xác minh nguồn thực sự hỗ trợ phát biểu. Giữ reuse label độc lập với citation status.
   - Đầu ra: citation metadata/schema và test có/không/mơ hồ về trích dẫn.
   - Hoàn tất khi: có citation không làm evidence biến mất; hệ thống không tự kết luận trích dẫn hợp lệ chỉ vì thấy dấu [n].

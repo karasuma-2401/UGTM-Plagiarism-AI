@@ -2,7 +2,7 @@ import logging
 
 from psycopg.types.json import Jsonb
 
-from app.alignment import group_adjacent_findings
+from app.alignment import align_passage_pair, group_adjacent_findings
 from app.celery_app import celery_app
 from app.config import settings
 from app.db import connect, get_job, set_status
@@ -164,7 +164,7 @@ def scan_document(job_id: str):
     from app.classifier import score_candidate
     from app.inference import InferenceError
     from app.models import encode_texts, rerank_pairs
-    from app.search import retrieve
+    from app.search import load_retrieval_config, retrieve
 
     set_status(job_id, "processing")
     try:
@@ -187,8 +187,13 @@ def scan_document(job_id: str):
         exclude_source_keys = [job["document_key"]] if job.get("document_key") else None
         exclude_document_family = job.get("document_family")
 
-        # TỐI ƯU HÓA: Lọc thô ứng viên trước khi đưa vào mô hình Cross-Encoder.
-        # Chỉ những cặp có độ tương đồng ban đầu tiềm năng mới cần rerank sâu.
+        # Lựa chọn ứng viên theo configs/retrieval_config.json (CP-04.1)
+        retrieval_cfg = load_retrieval_config()
+        prefilter_cfg = retrieval_cfg.get("prefilter", {})
+        prefilter_enabled = prefilter_cfg.get("enabled", False)
+        min_dense = float(prefilter_cfg.get("min_dense_score", 0.48))
+        min_lex = float(prefilter_cfg.get("min_lexical_score", 0.25))
+
         candidates_to_rerank: list[tuple] = []
         for query_chunk, vector in zip(query_chunks, vectors):
             candidates = retrieve(
@@ -203,8 +208,8 @@ def scan_document(job_id: str):
             for item in candidates:
                 dense = float(item["dense_score"])
                 lexical = float(item["lexical_score"])
-                # Bỏ qua 95% các đoạn không tương quan để tiết kiệm thời gian tính toán
-                if dense >= 0.48 or lexical >= 0.25:
+                # Khi prefilter được bật, chỉ giữ các đoạn thỏa mãn ngưỡng thô
+                if not prefilter_enabled or (dense >= min_dense or lexical >= min_lex):
                     candidates_to_rerank.append((query_chunk, item))
 
         if candidates_to_rerank:
@@ -240,6 +245,26 @@ def scan_document(job_id: str):
                     )
                 if not review:
                     continue
+                from app.citation import detect_citation_context
+
+                cit_ctx = detect_citation_context(
+                    query_text=query_chunk.text,
+                    source_metadata={
+                        "source_key": str(item.get("source_key", "")),
+                        "source_version": int(item.get("source_version", 1)),
+                        "source_filename": str(item.get("source_filename", "")),
+                        "document_family": str(item.get("document_family", "")),
+                    },
+                )
+                spans = align_passage_pair(
+                    query_text=query_chunk.text,
+                    source_text=item.get("source_text", ""),
+                    query_base_offset=query_chunk.start_offset,
+                    source_base_offset=int(item.get("source_start", 0)),
+                    source_key=str(item.get("source_key", "")),
+                    source_version=int(item.get("source_version", 1)),
+                    source_filename=str(item.get("source_filename", "")),
+                )
                 all_findings.append(
                     {
                         "submission_chunk_no": query_chunk.chunk_no,
@@ -253,8 +278,11 @@ def scan_document(job_id: str):
                             round(result["score"], 4) if result else None
                         ),
                         "decision_source": decision_source,
+                        "citation_status": cit_ctx.status,
+                        "citation_context": cit_ctx.to_dict(),
                         "feature_values": features,
                         "review_required": True,
+                        "aligned_spans": [s.to_dict() for s in spans] if spans else None,
                     }
                 )
 

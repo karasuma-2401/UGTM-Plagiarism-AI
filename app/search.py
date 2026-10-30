@@ -1,6 +1,26 @@
 import json
+from pathlib import Path
+from typing import Any
 
 from app.db import connect
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+RETRIEVAL_CONFIG_PATH = PROJECT_ROOT / "configs" / "retrieval_config.json"
+
+
+def load_retrieval_config() -> dict[str, Any]:
+    """Load production retrieval configuration from configs/retrieval_config.json."""
+    if RETRIEVAL_CONFIG_PATH.is_file():
+        try:
+            return json.loads(RETRIEVAL_CONFIG_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {
+        "top_k_per_branch": 30,
+        "fused_k": 25,
+        "rrf_k": 60,
+        "prefilter": {"enabled": False, "mode": "none"},
+    }
 
 
 def vector_literal(vector) -> str:
@@ -12,11 +32,20 @@ def retrieve(
     query_text: str,
     query_vector,
     corpus_id: str,
-    top_k: int = 6,
-    fused_k: int = 5,
+    top_k: int | None = None,
+    fused_k: int | None = None,
+    rrf_k: int | None = None,
     exclude_source_keys: list[str] | None = None,
     exclude_document_family: str | None = None,
 ) -> list[dict]:
+    cfg = load_retrieval_config()
+    if top_k is None:
+        top_k = int(cfg.get("top_k_per_branch", 30))
+    if fused_k is None:
+        fused_k = int(cfg.get("fused_k", 25))
+    if rrf_k is None:
+        rrf_k = int(cfg.get("rrf_k", 60))
+
     vector = vector_literal(query_vector)
 
     extra_filters: list[str] = []
@@ -79,7 +108,7 @@ def retrieve(
                     "lexical_score": None,
                 },
             )
-            item["rrf_score"] += 1.0 / (60 + rank)
+            item["rrf_score"] += 1.0 / (rrf_k + rank)
             score_key = f"{branch}_score"
             item[score_key] = float(row[score_key])
 

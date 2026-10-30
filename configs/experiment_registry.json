@@ -134,8 +134,17 @@
       "id": "EXP-04.1-RETRIEVAL",
       "category": "core_upgrade",
       "checkpoint": "CP-04.1",
-      "status": "planned",
-      "config_ref": null,
+      "status": "completed",
+      "config_ref": "configs/retrieval_config.json",
+      "report_ref": "docs/candidate-retrieval-optimization-report.md",
+      "data_ref": "data/retrieval_sweep_results.json",
+      "metrics": {
+        "top_k_per_branch": 30,
+        "fused_k": 25,
+        "overall_source_recall": 1.0000,
+        "prefilter": "no_prefilter",
+        "estimated_pipeline_time_50_chunks_sec": 1.48
+      },
       "description": "Sweep top_k, fused_k, prefilter removal/tuning, and sentence/paragraph chunking trade-offs against Recall@K and rerank latency.",
       "research_question": "RQ2"
     },
@@ -143,17 +152,41 @@
       "id": "EXP-04.2-ALIGNMENT",
       "category": "core_upgrade",
       "checkpoint": "CP-04.2",
-      "status": "planned",
-      "config_ref": null,
-      "description": "Constrained local sentence/span alignment (one-to-many, overlap deduplication, multi-source separation) vs B0 adjacent chunk grouping.",
+      "status": "completed",
+      "config_ref": "app/alignment.py",
+      "report_ref": "docs/sentence-span-alignment-specification.md",
+      "metrics": {
+        "mean_iou": 0.7413,
+        "mean_precision": 0.8148,
+        "mean_recall": 0.7413,
+        "mean_f1": 0.7652,
+        "match_rate": 0.8025,
+        "monolingual_precision": 1.0000,
+        "evaluated_positive_pairs": 81,
+        "regression_test_count": 13
+      },
+      "description": "Constrained local sentence/span alignment (one-to-many, many-to-one, overlap deduplication, multi-source separation) vs B0 adjacent chunk grouping.",
       "research_question": "RQ2"
     },
     {
       "id": "EXP-04.3-CITATION",
       "category": "core_upgrade",
       "checkpoint": "CP-04.3",
-      "status": "planned",
-      "config_ref": null,
+      "status": "completed",
+      "config_ref": "app/citation.py",
+      "report_ref": "docs/citation-aware-context-specification.md",
+      "metrics": {
+        "regression_test_count": 12,
+        "evidence_preservation_rate": 1.0000,
+        "citation_styles_supported": [
+          "numeric",
+          "author_year",
+          "narrative",
+          "direct_quote"
+        ],
+        "misattribution_detection": "enabled",
+        "evaluated_val_pairs": 120
+      },
       "description": "Citation marker & reference-link context annotation (present/absent/uncertain) kept orthogonal to text reuse label.",
       "research_question": "RQ3"
     },
