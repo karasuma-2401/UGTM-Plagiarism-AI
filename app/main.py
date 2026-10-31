@@ -12,7 +12,8 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
-from app.db import connect, get_job
+from app.db import cancel_job, connect, get_job, reclaim_stale_jobs
+from app.reconciler import safe_enqueue_job
 from app.storage import get_storage
 from app.tasks import index_source, scan_document
 
@@ -87,13 +88,10 @@ async def save_upload(file: UploadFile) -> tuple[str, str, str]:
                     )
 
         storage = get_storage()
-        if storage.name == "s3":
-            object_key = f"uploads/{digest.hexdigest()[:16]}_{filename}"
-            storage.upload_file(path, object_key)
-            path.unlink(missing_ok=True)
-            return object_key, digest.hexdigest(), filename
-
-        return str(path), digest.hexdigest(), filename
+        object_key = f"uploads/{digest.hexdigest()[:16]}_{filename}"
+        storage.upload_file(path, object_key)
+        path.unlink(missing_ok=True)
+        return object_key, digest.hexdigest(), filename
     except Exception:
         path.unlink(missing_ok=True)
         raise
@@ -284,7 +282,7 @@ async def add_source(
         raise
 
     if created:
-        index_source.delay(job_id)
+        safe_enqueue_job(job_id, "index")
     else:
         Path(path).unlink(missing_ok=True)
     return {"job_id": job_id, "status": "queued" if created else "existing"}
@@ -318,7 +316,7 @@ async def start_scan(
         raise
 
     if created:
-        scan_document.delay(job_id)
+        safe_enqueue_job(job_id, "scan")
     else:
         Path(path).unlink(missing_ok=True)
     return {"job_id": job_id, "status": "queued" if created else "existing"}
@@ -334,8 +332,59 @@ def job_status(job_id: uuid.UUID):
         "type": job["job_type"],
         "status": job["status"],
         "error_code": job["error_code"],
-        "updated_at": job["updated_at"],
+        "attempt": job.get("attempt", 0),
+        "max_attempts": job.get("max_attempts", 5),
+        "retry_after": job["retry_after"].isoformat() if job.get("retry_after") else None,
+        "last_heartbeat": job["last_heartbeat"].isoformat() if job.get("last_heartbeat") else None,
+        "worker_id": job.get("worker_id"),
+        "checkpoint": job.get("checkpoint"),
+        "enqueued_at": job["enqueued_at"].isoformat() if job.get("enqueued_at") else None,
+        "reconciled_at": job["reconciled_at"].isoformat() if job.get("reconciled_at") else None,
+        "created_at": job["created_at"].isoformat() if job.get("created_at") else None,
+        "updated_at": job["updated_at"].isoformat() if job.get("updated_at") else None,
     }
+
+
+@app.post("/api/v1/jobs/{job_id}/cancel", dependencies=[Depends(require_key)])
+def cancel_job_endpoint(job_id: uuid.UUID, reason: str = Query(default="USER_CANCELLED")):
+    cancelled = cancel_job(str(job_id), reason=reason)
+    if not cancelled:
+        job = get_job(str(job_id))
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot cancel job in terminal state: {job['status']}",
+        )
+    return {
+        "job_id": str(job_id),
+        "status": "cancelled",
+        "reason": reason,
+    }
+
+
+@app.post("/api/v1/jobs/reclaim", dependencies=[Depends(require_key)])
+def reclaim_stale_jobs_endpoint(
+    stale_seconds: int = Query(default=180, ge=30, le=86400),
+):
+    reclaimed = reclaim_stale_jobs(stale_seconds=stale_seconds)
+    return {
+        "reclaimed_count": len(reclaimed),
+        "reclaimed_jobs": reclaimed,
+    }
+
+
+@app.post("/api/v1/jobs/reconcile", dependencies=[Depends(require_key)])
+def reconcile_jobs_endpoint(
+    queued_timeout_seconds: int = Query(default=60, ge=5, le=86400),
+    limit: int = Query(default=50, ge=1, le=500),
+):
+    from app.reconciler import reconcile_pending_jobs
+
+    return reconcile_pending_jobs(
+        queued_timeout_seconds=queued_timeout_seconds,
+        limit=limit,
+    )
 
 
 @app.get("/api/v1/reports/{job_id}", dependencies=[Depends(require_key)])
@@ -349,9 +398,12 @@ def report(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     if job["status"] != "completed":
-        raise HTTPException(status_code=409, detail="Job not completed")
+        raise HTTPException(
+            status_code=409,
+            detail=f"Report not ready: {job['status']}",
+        )
 
-    rep = job["report"] or {}
+    rep = job.get("report") or {}
     if not rep:
         return {}
 
@@ -359,7 +411,7 @@ def report(
         from app.reports import convert_report_to_schema_v2
         return convert_report_to_schema_v2(rep)
 
-    if rep.get("schema_version") == 3:
+    if rep.get("schema_version") in (3, "3", "3.0"):
         from app.reports import paginate_report_findings
         return paginate_report_findings(rep, page=page, page_size=page_size)
 

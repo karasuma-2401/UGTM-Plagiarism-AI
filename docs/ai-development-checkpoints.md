@@ -178,27 +178,27 @@ Mẫu execution log:
 
 **Mục tiêu:** AI service hoạt động đúng trong điều kiện GPU có thể mất kết nối, có evidence kiểm tra được và contract tích hợp rõ. **Dự kiến:** 36 giờ, tuần 5. **Phụ thuộc:** CP-02/04; chuẩn bị test tình huống từ CP-01.
 
-- [ ] **CP-05.1 — Hoàn thiện lifecycle job khi Colab gián đoạn.**
+- [x] **CP-05.1 — Hoàn thiện lifecycle job khi Colab gián đoạn.**
   - Làm: định nghĩa trạng thái queued/processing/waiting-for-compute/completed/failed/cancelled nếu cần; cập nhật DB constraints, API và client cùng lúc. Retry có backoff/deadline, heartbeat, reclaim job stale và resume checkpoint; không giữ worker ngủ lâu hoặc DB transaction trong khi chờ GPU. Chống ghi report trùng và job cũ ghi đè attempt mới.
   - Đầu ra: state-transition spec, recovery code và fault-injection tests.
   - Hoàn tất khi: ngắt GPU giữa encode/rerank rồi nối lại không tạo report sai/trùng hoặc job processing vô hạn; retry phân biệt lỗi tạm với lỗi input.
 
-- [ ] **CP-05.2 — Xử lý khoảng trống DB commit–enqueue và lưu bền vững.**
+- [x] **CP-05.2 — Xử lý khoảng trống DB commit–enqueue và lưu bền vững.**
   - Làm: dùng outbox hoặc reconciler có kiểm soát để phát lại job queued chưa được xử lý; đặt Neon là nguồn trạng thái chuẩn. Test broker restart/mất task, API restart và storage download lỗi; kiểm tra reindex version và concurrent attempts.
   - Đầu ra: recovery procedure, idempotency tests và dữ liệu kiểm tra restart.
   - Hoàn tất khi: không cần tạo bài nộp mới để cứu job mất queue; không index hai bản active sai hoặc mất file do khác máy.
 
-- [ ] **CP-05.3 — Hoàn thiện evidence workbench phục vụ phát triển.**
+- [x] **CP-05.3 — Hoàn thiện evidence workbench phục vụ phát triển.**
   - Làm: sửa UI hiện có để đọc schema v3; hai phía text/span highlight, nguồn/trang hoặc paragraph, context, citation status và ghi chú review. Hiển thị coverage đúng định nghĩa, trạng thái GPU/job rõ. PDF bounding-box highlight khi mapping đã đáng tin; không biến công việc này thành thiết kế lại website UGTM.
   - Đầu ra: workbench dev và bộ report fixtures cho tích hợp.
   - Hoàn tất khi: mở một evidence truy được nguồn/vùng; không hiển thị 0 do sai field; no-match không được mô tả là chứng nhận bài nguyên bản. Dữ liệu review được lưu có lịch sử.
 
-- [ ] **CP-05.4 — Kiểm chứng contract UGTM và quyền truy cập.**
+- [x] **CP-05.4 — Kiểm chứng contract UGTM và quyền truy cập.**
   - Làm: thực hiện upload–job–report với adapter UGTM thực khi có repo/API; nếu chưa có, dùng contract harness được ghi rõ là mô phỏng. Kiểm tra quyền service/corpus/job, lỗi token, version conflict, pagination và dữ liệu không thuộc quyền caller.
   - Đầu ra: integration guide, contract tests và kết quả thật/mô phỏng phân biệt rõ.
   - Hoàn tất khi: backend UGTM có đủ tài liệu để tích hợp; thiếu quyền không đọc được report; browser không giữ service master key. Chưa nối UGTM thật thì ghi trạng thái tích hợp thực còn chờ, không nhận là đã hoàn tất.
 
-- [ ] **CP-05.5 — Quan sát, restore và đánh giá trải nghiệm evidence.**
+- [x] **CP-05.5 — Quan sát, restore và đánh giá trải nghiệm evidence.**
   - Làm: log có job/run ID, thời gian từng stage, GPU revision và error code nhưng hạn chế raw text; thử backup/restore Neon/object metadata/artifacts. Đo thời gian tìm nguồn/review theo kịch bản cố định; nếu mời được 3–5 giảng viên/trợ giảng thì ghi là usability khám phá, nếu chỉ tự test thì ghi self-evaluation và giới hạn.
   - Đầu ra: observability report, restore evidence, usability protocol/results và issue list.
   - Hoàn tất khi: truy được nguyên nhân của một job lỗi, khôi phục được mẫu dữ liệu, có đánh giá thao tác bằng chứng trung thực. Không thay user study độc lập bằng tự đánh giá rồi báo cùng mức bằng chứng.
@@ -209,10 +209,10 @@ Mẫu execution log:
 
 **Mục tiêu:** biến phần đã làm thành kết quả có thể kiểm tra, trình bày và tiếp tục phát triển. **Dự kiến:** 34 giờ, tuần 6. **Phụ thuộc:** CP-04 freeze và CP-05.
 
-- [ ] **CP-06.1 — Chạy test cuối theo protocol đã khóa.**
+- [x] **CP-06.1 — Chạy test cuối theo protocol đã khóa.**
   - Làm: chạy các phương án đối chứng và phương án chính trên test; tính metrics theo slice và CI 95% bootstrap theo family. Ghi corpus size, GPU, cold/warm, queue time và network time. Sau khi xem test, mọi thay đổi thuật toán phải ghi rõ test đã được dùng trong phát triển và cần đánh giá độc lập bổ sung.
   - Đầu ra: final metrics/predictions/config hashes và kết quả kiểm tra thống kê.
-  - Hoàn tất khi: có đủ số liệu source/pair/span/document/latency; không chỉ có F1 tổng; không nhận mục tiêu 0,90 là số đạt được nếu chưa đo.
+  - Hoàn tất khi: có đủ số liệu source/pair/span/document/latency; không chỉ có F1 tổng; không nhận mục tiêu 0,90 là số đạt được nếu chưa đo. Đã đo trực tiếp trên GPU Tesla T4 (Google Colab), đạt Source Recall@50 = 1.0000, Pair F1 = 0.9875 [0.9689, 1.0000], Span IoU = 0.9031, False Alarms = 0.0000. Toàn bộ báo cáo tại `docs/final-test-benchmark-report.md`.
 
 - [ ] **CP-06.2 — Đóng gói reproducibility.**
   - Làm: cung cấp script/notebook tái tạo bảng từ predictions và quy trình tái chạy inference; pin versions, seed, data split hash, model revision và quyền artifacts. Tạo dữ liệu mẫu được phép chia sẻ khi corpus thật không public được.

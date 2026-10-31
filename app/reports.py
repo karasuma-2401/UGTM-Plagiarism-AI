@@ -224,6 +224,7 @@ def build_report_v3(
     corpus_snapshot_id: str = "corpus-v2-73fams",
     classifier_version: str | None = None,
     detector_mode: Literal["heuristic", "custom_classifier", "near_exact_override"] = "heuristic",
+    execution_telemetry: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Construct a full canonical Report Schema v3 without pre-truncating findings."""
     # 1. Group all findings into passage groups
@@ -262,6 +263,9 @@ def build_report_v3(
         "detector_mode": detector_mode,
         "corpus_snapshot_id": corpus_snapshot_id,
     }
+
+    if execution_telemetry:
+        provenance["execution_telemetry"] = execution_telemetry
 
     cited_count = sum(1 for f in grouped_findings if f.get("citation_status") in ("present", "cited"))
     uncited_count = sum(1 for f in grouped_findings if f.get("citation_status") in ("absent", "uncited"))
@@ -317,7 +321,7 @@ def paginate_report_findings(
     page_size: int = 100,
 ) -> dict[str, Any]:
     """Slice findings for API response according to requested pagination parameters."""
-    if report_dict.get("schema_version") != 3:
+    if report_dict.get("schema_version") not in (3, "3", "3.0"):
         return report_dict
 
     full_findings = report_dict.get("findings", [])
