@@ -42,6 +42,15 @@
       "config_path": "artifacts/ai_release_candidate_rc1.manifest.json",
       "git_commit": "85ea786e257b0b11a5601edfc5bc9a4ff575413d",
       "notes": "Locked primary AI pipeline (RC1): Block parser v2, paragraph chunking, K=30 no_prefilter, BGE-M3 + BGE-Reranker-v2-M3, constrained sentence/span alignment, citation context, calibrated Platt 3-band review policy, and corpus snapshot."
+    },
+    {
+      "freeze_id": "FREEZE-RELEASE-V1.0.0",
+      "checkpoint": "CP-06.2",
+      "status": "locked",
+      "locked_at": "2026-10-31",
+      "config_path": "artifacts/release_manifest_v1.0.0.json",
+      "git_commit": null,
+      "notes": "Full release candidate package frozen: reproducibility guide, model card, sample shareable corpus, reproduced benchmark tables, and verified bit-for-bit parity."
     }
   ],
   "experiments": [
@@ -279,6 +288,27 @@
       "estimated_hours": 26,
       "description": "Fine-tuning rejected for 6-week core scope: off-the-shelf BGE-Reranker achieves 0 false alarms on hard negatives; fine-tuning on solo annotations risks severe overfitting.",
       "research_question": "RQ2 (extension)"
+    },
+    {
+      "id": "FINAL-TEST-RC1",
+      "category": "final_evaluation",
+      "checkpoint": "CP-06.1",
+      "status": "completed",
+      "config_ref": "artifacts/ai_release_candidate_rc1.manifest.json",
+      "report_ref": "docs/final-test-benchmark-report.md",
+      "metrics": {
+        "source_recall_at_50": 1.0,
+        "span_iou": 0.9031,
+        "span_f1": 0.9255,
+        "precision": 1.0,
+        "recall": 0.9753,
+        "f1": 0.9875,
+        "f1_ci_95": [0.9689, 1.0],
+        "pr_auc": 1.0,
+        "false_alarms_per_doc": 0.0
+      },
+      "description": "Blind independent evaluation of proposed RC1 pipeline on locked holdout test.csv (120 pairs, 19 families) using real Tesla T4 GPU worker.",
+      "research_question": "RQ1, RQ2, RQ3 definitive proof"
     }
   ]
 }

@@ -214,10 +214,10 @@ Mẫu execution log:
   - Đầu ra: final metrics/predictions/config hashes và kết quả kiểm tra thống kê.
   - Hoàn tất khi: có đủ số liệu source/pair/span/document/latency; không chỉ có F1 tổng; không nhận mục tiêu 0,90 là số đạt được nếu chưa đo. Đã đo trực tiếp trên GPU Tesla T4 (Google Colab), đạt Source Recall@50 = 1.0000, Pair F1 = 0.9875 [0.9689, 1.0000], Span IoU = 0.9031, False Alarms = 0.0000. Toàn bộ báo cáo tại `docs/final-test-benchmark-report.md`.
 
-- [ ] **CP-06.2 — Đóng gói reproducibility.**
+- [x] **CP-06.2 — Đóng gói reproducibility.**
   - Làm: cung cấp script/notebook tái tạo bảng từ predictions và quy trình tái chạy inference; pin versions, seed, data split hash, model revision và quyền artifacts. Tạo dữ liệu mẫu được phép chia sẻ khi corpus thật không public được.
   - Đầu ra: reproducibility guide, data/model cards, release manifest.
-  - Hoàn tất khi: tự thử từ môi trường sạch hoặc nhờ người khác chạy hướng dẫn; bước cần quyền/GPU được ghi rõ, không phụ thuộc file local không được liệt kê.
+  - Hoàn tất khi: tự thử từ môi trường sạch hoặc nhờ người khác chạy hướng dẫn; bước cần quyền/GPU được ghi rõ, không phụ thuộc file local không được liệt kê. Đã xây dựng `scripts/reproduce_benchmark_tables.py` (100% parity verified), phát hành `docs/reproducibility-guide.md`, `docs/model-card-rc1.md`, sample shareable corpus tại `data/sample_shareable_corpus/`, niêm phong `artifacts/release_manifest_v1.0.0.json`, và bổ sung bộ kiểm thử `tests/test_reproducibility.py` (5/5 passed).
 
 - [ ] **CP-06.3 — Viết báo cáo nghiên cứu theo câu hỏi và bằng chứng.**
   - Làm: viết bài toán, related work, RQ1–3, dataset/annotation limits, phương pháp, baselines, ablations, kết quả, error analysis và giới hạn. Phân biệt kỹ thuật đã có trong paper với đóng góp triển khai/thực nghiệm của bạn.

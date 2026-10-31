@@ -1,0 +1,138 @@
+{
+  "release_id": "RELEASE-V1.0.0-RC1",
+  "checkpoint": "CP-06.2",
+  "version": "1.0.0-rc1",
+  "tag": "v1.0.0-rc1",
+  "created_at": "2026-10-31T07:55:51Z",
+  "author": "Solo Developer & AI Pair Programmer",
+  "license": "MIT",
+  "target_hardware": "Remote GPU Worker (Tesla T4, CUDA 12.x)",
+  "primary_metrics": {
+    "source_recall_at_50": 1.0,
+    "pair_precision": 1.0,
+    "pair_recall": 0.9753,
+    "pair_f1": 0.9875,
+    "pair_f1_ci_95": [
+      0.9689,
+      1.0
+    ],
+    "span_iou": 0.9031,
+    "span_f1": 0.9255,
+    "false_alarms_per_doc": 0.0,
+    "pr_auc": 1.0
+  },
+  "files": {
+    "data/benchmark_v1/train.csv": {
+      "sha256": "a7b56c2ebe7f7e5142ad7180978ecfdd668fb5123ccadf7d8ab96df122e8a1ef",
+      "size_bytes": 655315
+    },
+    "data/benchmark_v1/val.csv": {
+      "sha256": "16c81cf505827fc33ea00728f53343b0bc36033c78ad700d468a0c185e0a6414",
+      "size_bytes": 137461
+    },
+    "data/benchmark_v1/test.csv": {
+      "sha256": "7b8432a8e7f480ad3589c26e9220acac5d9afd7e89b22c914a9ac2cf277a340a",
+      "size_bytes": 139104
+    },
+    "data/benchmark_v1/split_manifest.json": {
+      "sha256": "217297880dd3579e9e848f1841c4da0e907e06e7f8cbcf0d4794828563ac4b90",
+      "size_bytes": 1746
+    },
+    "artifacts/suspicious_passage_classifier.manifest.json": {
+      "sha256": "3d5700ac36a288a1ec559908c085b1238f26d9a986365fbd838d2ac836dd0f23",
+      "size_bytes": 1507
+    },
+    "artifacts/ai_release_candidate_rc1.manifest.json": {
+      "sha256": "def0b58bcde450a64a42c7b8ca1d38441ee180a0e2453f83f3e9959f2b40c448",
+      "size_bytes": 7846
+    },
+    "requirements/cpu-dev-win32.lock.txt": {
+      "sha256": "b28fa08a667ad4396aba53aef03e322e36f08616f83f03ed3f880a2fceaac98d",
+      "size_bytes": 1347
+    },
+    "requirements/api.txt": {
+      "sha256": "602f89dcada2d2dcef38fb026ad8b8ebc22ae99d5d7cc2b7f9bd9848b8bd8290",
+      "size_bytes": 352
+    },
+    "requirements/cpu-worker.txt": {
+      "sha256": "cbc690c1807b20e5dbefdd2665dcd031ca52d01d3f4d91eae9b24b7a1b6b2f59",
+      "size_bytes": 386
+    },
+    "requirements/gpu-colab.txt": {
+      "sha256": "b729f71e55455fe476b5d7abf0dd16bee315149c270dc6028fc8ab28319a4a87",
+      "size_bytes": 638
+    },
+    "requirements/dev.txt": {
+      "sha256": "7212c116c5b5de030c51fd93c238d253143eee4c84faa2b4d6979992aa7b5c15",
+      "size_bytes": 137
+    },
+    "app/main.py": {
+      "sha256": "b63a9ff3a88e06c3fe6dc293a6294e7f2b926a975e8a8b1c36e86b2aa9959a23",
+      "size_bytes": 17128
+    },
+    "app/tasks.py": {
+      "sha256": "3345ff4b66fd484e263c41fb30b6d67c15812f9a31cd80052f344448c5fe7456",
+      "size_bytes": 22746
+    },
+    "app/reports.py": {
+      "sha256": "80ddca7487b31fa6fe5cd9dc014405a62eef5fc9d1eb714037a4e0a2d208ed82",
+      "size_bytes": 14060
+    },
+    "app/preprocessing.py": {
+      "sha256": "819cd53a07065ed85e45dd02d2058cecf032b5cab38419b98da25381df458c05",
+      "size_bytes": 8807
+    },
+    "app/documents.py": {
+      "sha256": "31110e19c5de158482a9f6389347b4b8940c3191cbaf247eb2dda1b78ef3a180",
+      "size_bytes": 33455
+    },
+    "app/alignment.py": {
+      "sha256": "f38116cefe44056eed4e8588f4ce17b5a1271bddcb4541380cba4f708a95518d",
+      "size_bytes": 19722
+    },
+    "app/citation.py": {
+      "sha256": "2c3ebc270a68fac6c719e5d0c60d42fa26d64c29caa3c03772ecde90ce3d5372",
+      "size_bytes": 14428
+    },
+    "app/classifier.py": {
+      "sha256": "8170c05afd42f3dd156eed2f604851476ec4f8911c6b8f8761c7a6ff86930850",
+      "size_bytes": 4159
+    },
+    "app/evaluator.py": {
+      "sha256": "3d36c9b0fe3f4c69265ee6304da226f5a6602ea6fe46b1622e1f81c79d052fb5",
+      "size_bytes": 18457
+    },
+    "app/observability.py": {
+      "sha256": "dc9c5c135de8ddbb3ea5e309849c06f7a38da2e01d723f8ceff8e6cd854034dd",
+      "size_bytes": 3506
+    },
+    "app/reconciler.py": {
+      "sha256": "befc487e7edfde0751f4a71294ea82271e182ac4f211ead06ac11cf966addc44",
+      "size_bytes": 7372
+    },
+    "scripts/reproduce_benchmark_tables.py": {
+      "sha256": "6800f7e58efaa8dc441ab0955e836b1eac46a922cb3e7b39ea40bc00bc4a31c4",
+      "size_bytes": 11286
+    },
+    "scripts/run_final_test_evaluation.py": {
+      "sha256": "0fcc205695bac240167afbede5236dc931d268a353ae1eea5de720fb591fc879",
+      "size_bytes": 23059
+    },
+    "docs/final-test-benchmark-report.md": {
+      "sha256": "93f78bbc81851e7e53e0cba085ca174708e36209c02c889bd5ae93bfd8e51350",
+      "size_bytes": 4977
+    },
+    "docs/reproducibility-guide.md": {
+      "sha256": "14a55a90ce86ce78fdef94abe4cf141749e57222a9d7eb99ae9a93fd926d8fbd",
+      "size_bytes": 6360
+    },
+    "docs/model-card-rc1.md": {
+      "sha256": "668bb7940c98d99476fd6b7d00340920f28c6577432ca9612211b1ec02aae920",
+      "size_bytes": 8148
+    },
+    "reports/final_test_reports/report_rc1.json": {
+      "sha256": "a6ee5977f365dded2d0ad4e71fcbdfe58b6a5077ebf878d2e293014bb5a4811a",
+      "size_bytes": 3674
+    }
+  }
+}
