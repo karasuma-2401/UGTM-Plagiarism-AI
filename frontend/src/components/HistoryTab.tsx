@@ -97,6 +97,8 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ onViewReport, showToast 
                 filteredJobs.map((job) => {
                   const isCompleted = job.status === 'completed';
                   const isFailed = job.status === 'failed';
+                  const isWaitingForCompute = job.status === 'waiting_for_compute';
+                  const isCancelled = job.status === 'cancelled';
                   const isProcessing = job.status === 'processing' || job.status === 'queued';
 
                   return (
@@ -129,6 +131,10 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ onViewReport, showToast 
                               ? 'bg-emerald-100 text-emerald-800'
                               : isFailed
                               ? 'bg-red-100 text-red-800'
+                              : isWaitingForCompute
+                              ? 'bg-amber-100 text-amber-800 animate-pulse'
+                              : isCancelled
+                              ? 'bg-slate-200 text-slate-700'
                               : 'bg-blue-100 text-blue-800 animate-pulse'
                           }`}
                         >
@@ -136,6 +142,8 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ onViewReport, showToast 
                             <CheckCircle2 className="w-3 h-3 text-emerald-600 mr-0.5" />
                           ) : isFailed ? (
                             <XCircle className="w-3 h-3 text-red-600 mr-0.5" />
+                          ) : isWaitingForCompute ? (
+                            <Clock className="w-3 h-3 text-amber-600 mr-0.5" />
                           ) : (
                             <Clock className="w-3 h-3 text-blue-600 mr-0.5" />
                           )}
@@ -144,6 +152,10 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ onViewReport, showToast 
                               ? 'completed'
                               : isFailed
                               ? `failed ${job.error_code ? `(${job.error_code})` : ''}`
+                              : isWaitingForCompute
+                              ? `Chờ GPU (${job.attempt || 1}/${job.max_attempts || 5})`
+                              : isCancelled
+                              ? 'Đã huỷ'
                               : job.status}
                           </span>
                         </span>
@@ -162,6 +174,10 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ onViewReport, showToast 
                             <span>Xem Báo Cáo</span>
                             <ArrowUpRight className="w-3 h-3" />
                           </button>
+                        ) : isWaitingForCompute ? (
+                          <span className="text-[11px] text-amber-600 font-medium">
+                            Đang retry...
+                          </span>
                         ) : isProcessing ? (
                           <span className="text-[11px] text-blue-600 font-medium animate-pulse">
                             Đang xử lý...

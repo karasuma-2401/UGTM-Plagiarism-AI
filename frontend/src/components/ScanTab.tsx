@@ -378,6 +378,10 @@ export const ScanTab: React.FC<ScanTabProps> = ({ config, onViewReport, showToas
                   ? 'bg-emerald-100 text-emerald-800'
                   : jobStatus === 'failed'
                   ? 'bg-red-100 text-red-800'
+                  : jobStatus === 'waiting_for_compute'
+                  ? 'bg-amber-100 text-amber-800 animate-pulse'
+                  : jobStatus === 'cancelled'
+                  ? 'bg-slate-200 text-slate-700'
                   : activeJobId
                   ? 'bg-blue-100 text-blue-800 animate-pulse'
                   : 'bg-slate-100 text-slate-600'
@@ -387,6 +391,10 @@ export const ScanTab: React.FC<ScanTabProps> = ({ config, onViewReport, showToas
                 ? 'Hoàn thành'
                 : jobStatus === 'failed'
                 ? 'Thất bại'
+                : jobStatus === 'waiting_for_compute'
+                ? 'Chờ GPU kết nối'
+                : jobStatus === 'cancelled'
+                ? 'Đã huỷ'
                 : activeJobId
                 ? 'Đang xử lý'
                 : 'Sẵn sàng'}
