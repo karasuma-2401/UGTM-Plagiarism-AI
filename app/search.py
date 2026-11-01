@@ -38,6 +38,7 @@ def retrieve(
     exclude_source_keys: list[str] | None = None,
     exclude_document_family: str | None = None,
 ) -> list[dict]:
+    query_text = (query_text or "").replace("\x00", "")
     cfg = load_retrieval_config()
     if top_k is None:
         top_k = int(cfg.get("top_k_per_branch", 30))

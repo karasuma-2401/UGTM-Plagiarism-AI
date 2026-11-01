@@ -122,7 +122,8 @@ RX_AUTHORS = re.compile(
 
 def normalize(text: str) -> str:
     """Normalize whitespace and clean text."""
-    return re.sub(r"\s+", " ", text).strip()
+    clean = (text or "").replace("\x00", "")
+    return re.sub(r"\s+", " ", clean).strip()
 
 
 def classify_text_section(text: str, page_number: int | None = None) -> str:
