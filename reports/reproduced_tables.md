@@ -1,6 +1,6 @@
 # Reproduced Benchmark Evaluation Tables (CP-06.2)
 
-- **Verification Timestamp:** 2026-10-31 17:50:48 UTC
+- **Verification Timestamp:** 2026-11-01 04:51:28 UTC
 - **Dataset Split:** `data/benchmark_v1/test.csv` (120 pairs, 19 document families)
 - **Split SHA-256:** `7b8432a8e7f480ad3589c26e9220acac5d9afd7e89b22c914a9ac2cf277a340a` (Verified identical to split_manifest.json)
 - **Bootstrap Parameters:** Resampling Cluster: `query_family_id`, N = 1000, Seed = 42, Level = 95%

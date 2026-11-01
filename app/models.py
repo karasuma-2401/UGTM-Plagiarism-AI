@@ -4,6 +4,8 @@ import logging
 from typing import Any
 
 import numpy as np
+import requests
+from requests.adapters import HTTPAdapter
 
 from app.config import settings
 from app.inference import (
@@ -17,11 +19,31 @@ from app.inference import (
 logger = logging.getLogger(__name__)
 
 _LOCAL_BACKEND_CACHE: dict[tuple[Any, ...], LocalInferenceBackend] = {}
+_REMOTE_HTTP_SESSION: requests.Session | None = None
+
+
+def _get_shared_http_session() -> requests.Session:
+    """Persistent Keep-Alive HTTP session to eliminate repeated TLS/Cloudflare handshakes."""
+    global _REMOTE_HTTP_SESSION
+    if _REMOTE_HTTP_SESSION is None:
+        sess = requests.Session()
+        adapter = HTTPAdapter(pool_connections=4, pool_maxsize=8)
+        sess.mount("https://", adapter)
+        sess.mount("http://", adapter)
+        _REMOTE_HTTP_SESSION = sess
+    return _REMOTE_HTTP_SESSION
 
 
 def reset_inference_backend_cache() -> None:
     """Clear cached local inference backend instances (useful in tests)."""
+    global _REMOTE_HTTP_SESSION
     _LOCAL_BACKEND_CACHE.clear()
+    if _REMOTE_HTTP_SESSION is not None:
+        try:
+            _REMOTE_HTTP_SESSION.close()
+        except Exception:
+            pass
+        _REMOTE_HTTP_SESSION = None
 
 
 def build_remote_client() -> RemoteInferenceClient:
@@ -33,9 +55,10 @@ def build_remote_client() -> RemoteInferenceClient:
         embedding_dim=settings.embedding_dim,
         reranker_model=settings.reranker_model,
         reranker_revision=settings.reranker_revision,
-        default_batch_size=settings.remote_gpu_batch_size,
+        default_batch_size=max(int(settings.remote_gpu_batch_size), 64),
         timeout_seconds=settings.remote_gpu_timeout_seconds,
         health_timeout_seconds=settings.remote_gpu_health_timeout_seconds,
+        session=_get_shared_http_session(),
     )
 
 

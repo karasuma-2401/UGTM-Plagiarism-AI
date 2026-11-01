@@ -75,6 +75,11 @@ def main() -> None:
     parser.add_argument("--staging-dir", type=Path, required=True)
     parser.add_argument("--api-base-url", default="http://127.0.0.1:8000")
     parser.add_argument("--api-key-env", default="AI_API_KEY")
+    parser.add_argument(
+        "--corpus-id",
+        default=None,
+        help="Override corpus_id from manifest (e.g., 'uit_thesis')",
+    )
     parser.add_argument("--limit", type=int)
     parser.add_argument("--poll", action="store_true")
     parser.add_argument("--poll-interval", type=float, default=3.0)
@@ -82,7 +87,15 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    api_key = os.environ.get(args.api_key_env)
+    api_key = os.environ.get(args.api_key_env) or os.environ.get("API_KEY")
+    if not api_key:
+        try:
+            import sys
+            sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+            from app.config import settings
+            api_key = settings.api_key
+        except Exception:
+            pass
     if not args.dry_run and not api_key:
         raise RuntimeError(f"Set the {args.api_key_env} environment variable first")
     if not args.manifest.is_file():
@@ -106,9 +119,10 @@ def main() -> None:
             outcomes[row["source_key"]] = "DRY_RUN"
             continue
 
+        target_corpus_id = args.corpus_id or row["corpus_id"]
         body, boundary = multipart_body(
             {
-                "corpus_id": row["corpus_id"],
+                "corpus_id": target_corpus_id,
                 "source_id": row["source_key"],
                 "version": row["version"],
             },

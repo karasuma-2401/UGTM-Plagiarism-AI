@@ -64,6 +64,60 @@ def compute_char_ngrams(text: str, n: int = 3) -> set[str]:
     return {text[i : i + n] for i in range(len(text) - n + 1)}
 
 
+_RX_WORD = re.compile(r"\w+")
+
+
+def _prepare_sentence(text: str) -> tuple[str, set[str], set[str]]:
+    """Precompute normalized text, char 3-grams, and word token set once per sentence."""
+    norm = normalize(text).lower().strip()
+    if not norm:
+        return "", set(), set()
+    return norm, compute_char_ngrams(norm, 3), set(_RX_WORD.findall(norm))
+
+
+def _prepared_sentence_similarity(
+    prep_a: tuple[str, set[str], set[str]],
+    prep_b: tuple[str, set[str], set[str]],
+    min_needed: float = 0.0,
+) -> float:
+    """Lossless fast similarity using SequenceMatcher upper-bound pruning."""
+    na, ga, wa = prep_a
+    nb, gb, wb = prep_b
+
+    if not na or not nb:
+        return 0.0
+    if na == nb:
+        return 1.0
+
+    union_len = len(ga) + len(gb)
+    dice = (2.0 * len(ga & gb) / union_len) if union_len > 0 else 0.0
+
+    w_union = len(wa) + len(wb) - len(wa & wb)
+    jaccard = (len(wa & wb) / w_union) if w_union > 0 else 0.0
+
+    shorter, longer = (len(na), len(nb)) if len(na) <= len(nb) else (len(nb), len(na))
+    containment = (shorter / longer) if (shorter / longer > 0.4 and (na in nb or nb in na)) else 0.0
+
+    base = max(
+        dice,
+        0.65 * jaccard + 0.35 * dice,
+        containment * 0.95 if containment > 0.4 else 0.0,
+    )
+
+    # SequenceMatcher theorem: ratio() <= quick_ratio() <= real_quick_ratio().
+    # Only instantiate SequenceMatcher and compute O(L^2) ratio() if upper bounds exceed threshold.
+    threshold = base if base >= min_needed else min_needed
+    real_quick = (2.0 * shorter) / (shorter + longer)
+    if real_quick <= threshold:
+        sm_ratio = 0.0
+    else:
+        sm = difflib.SequenceMatcher(None, na, nb)
+        sm_ratio = 0.0 if sm.quick_ratio() <= threshold else sm.ratio()
+
+    composite = base if base >= sm_ratio else sm_ratio
+    return min(1.0, max(0.0, float(composite)))
+
+
 def compute_sentence_similarity(text_a: str, text_b: str) -> float:
     """Compute multi-perspective lexical and surface similarity between two sentences.
 
@@ -74,41 +128,11 @@ def compute_sentence_similarity(text_a: str, text_b: str) -> float:
     4. difflib SequenceMatcher ratio (order-preserving fuzzy matching).
     5. Asymmetric substring containment.
     """
-    na = normalize(text_a).lower().strip()
-    nb = normalize(text_b).lower().strip()
-
-    if not na or not nb:
-        return 0.0
-    if na == nb:
-        return 1.0
-
-    # 1. Char 3-gram Dice
-    ga = compute_char_ngrams(na, 3)
-    gb = compute_char_ngrams(nb, 3)
-    union_len = len(ga) + len(gb)
-    dice = (2.0 * len(ga & gb) / union_len) if union_len > 0 else 0.0
-
-    # 2. Word Token Jaccard
-    wa = set(re.findall(r"\w+", na))
-    wb = set(re.findall(r"\w+", nb))
-    w_union = len(wa | wb)
-    jaccard = (len(wa & wb) / w_union) if w_union > 0 else 0.0
-
-    # 3. SequenceMatcher Ratio
-    sm_ratio = difflib.SequenceMatcher(None, na, nb).ratio()
-
-    # 4. Asymmetric Substring Containment
-    shorter, longer = min(len(na), len(nb)), max(len(na), len(nb))
-    containment = (shorter / longer) if (na in nb or nb in na) else 0.0
-
-    # Weighted blend prioritizing structural similarity and dice
-    composite = max(
-        sm_ratio,
-        dice,
-        0.65 * jaccard + 0.35 * dice,
-        containment * 0.95 if containment > 0.4 else 0.0,
+    return _prepared_sentence_similarity(
+        _prepare_sentence(text_a),
+        _prepare_sentence(text_b),
+        min_needed=0.0,
     )
-    return min(1.0, max(0.0, float(composite)))
 
 
 def _extract_sentences_with_offsets(text: str) -> list[tuple[int, int, str]]:
@@ -158,53 +182,75 @@ def align_passage_pair(
     M = len(q_sents)
     N = len(s_sents)
 
+    q_preps = [_prepare_sentence(q_sents[i][2]) for i in range(M)]
+    s_preps = [_prepare_sentence(s_sents[j][2]) for j in range(N)]
+    single_floor = min(0.20, min_confidence)
+
     # 1. Precompute pairwise 1-to-1 similarity matrix
     sim_1_1 = [
-        [compute_sentence_similarity(q_sents[i][2], s_sents[j][2]) for j in range(N)]
+        [
+            _prepared_sentence_similarity(q_preps[i], s_preps[j], min_needed=single_floor)
+            for j in range(N)
+        ]
         for i in range(M)
     ]
 
     candidate_units: list[tuple[list[int], list[int], float, str]] = []
 
+    s_combo2 = [
+        _prepare_sentence(f"{s_sents[j][2]} {s_sents[j+1][2]}") for j in range(N - 1)
+    ]
+    s_combo3 = [
+        _prepare_sentence(f"{s_sents[j][2]} {s_sents[j+1][2]} {s_sents[j+2][2]}")
+        for j in range(N - 2)
+    ]
+    q_combo2 = [
+        _prepare_sentence(f"{q_sents[i][2]} {q_sents[i+1][2]}") for i in range(M - 1)
+    ]
+    q_combo3 = [
+        _prepare_sentence(f"{q_sents[i][2]} {q_sents[i+1][2]} {q_sents[i+2][2]}")
+        for i in range(M - 2)
+    ]
+
     # 2. Evaluate 1-to-many units (1 query sentence matching 2 or 3 contiguous source sentences)
     for i in range(M):
-        q_txt = q_sents[i][2]
+        q_p = q_preps[i]
         # 1-to-2
         for j in range(N - 1):
-            s_combo = f"{s_sents[j][2]} {s_sents[j+1][2]}"
-            score = compute_sentence_similarity(q_txt, s_combo)
             best_single = max(sim_1_1[i][j], sim_1_1[i][j + 1])
             worst_single = min(sim_1_1[i][j], sim_1_1[i][j + 1])
+            needed = min_confidence if worst_single >= 0.20 else max(min_confidence, best_single + 0.05)
+            score = _prepared_sentence_similarity(q_p, s_combo2[j], min_needed=needed)
             if score >= min_confidence and (
                 score >= best_single + 0.05 or (score >= 0.70 and worst_single >= 0.20)
             ):
                 candidate_units.append(([i], [j, j + 1], score, "one_to_many"))
         # 1-to-3
         for j in range(N - 2):
-            s_combo = f"{s_sents[j][2]} {s_sents[j+1][2]} {s_sents[j+2][2]}"
-            score = compute_sentence_similarity(q_txt, s_combo)
             best_single = max(sim_1_1[i][j], sim_1_1[i][j + 1], sim_1_1[i][j + 2])
+            needed = max(min_confidence, best_single + 0.08)
+            score = _prepared_sentence_similarity(q_p, s_combo3[j], min_needed=needed)
             if score >= min_confidence and score >= best_single + 0.08:
                 candidate_units.append(([i], [j, j + 1, j + 2], score, "one_to_many"))
 
     # 3. Evaluate many-to-1 units (2 or 3 contiguous query sentences matching 1 source sentence)
     for j in range(N):
-        s_txt = s_sents[j][2]
+        s_p = s_preps[j]
         # 2-to-1
         for i in range(M - 1):
-            q_combo = f"{q_sents[i][2]} {q_sents[i+1][2]}"
-            score = compute_sentence_similarity(q_combo, s_txt)
             best_single = max(sim_1_1[i][j], sim_1_1[i + 1][j])
             worst_single = min(sim_1_1[i][j], sim_1_1[i + 1][j])
+            needed = min_confidence if worst_single >= 0.20 else max(min_confidence, best_single + 0.05)
+            score = _prepared_sentence_similarity(q_combo2[i], s_p, min_needed=needed)
             if score >= min_confidence and (
                 score >= best_single + 0.05 or (score >= 0.70 and worst_single >= 0.20)
             ):
                 candidate_units.append(([i, i + 1], [j], score, "many_to_one"))
         # 3-to-1
         for i in range(M - 2):
-            q_combo = f"{q_sents[i][2]} {q_sents[i+1][2]} {q_sents[i+2][2]}"
-            score = compute_sentence_similarity(q_combo, s_txt)
             best_single = max(sim_1_1[i][j], sim_1_1[i + 1][j], sim_1_1[i + 2][j])
+            needed = max(min_confidence, best_single + 0.08)
+            score = _prepared_sentence_similarity(q_combo3[i], s_p, min_needed=needed)
             if score >= min_confidence and score >= best_single + 0.08:
                 candidate_units.append(([i, i + 1, i + 2], [j], score, "many_to_one"))
 

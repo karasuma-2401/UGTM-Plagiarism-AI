@@ -120,9 +120,35 @@ RX_AUTHORS = re.compile(
 )
 
 
+_VI_VOWEL_LOWER = "aăâeêioôơuưyàáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵ"
+_VI_ACCENTED_LOWER = "àáảãạắằẳẵặấầẩẫậèéẻẽẹếềểễệìíỉĩịòóỏõọốồổỗộớờởỡợùúủũụứừửữựỳýỷỹỵ"
+_VI_VOWEL_UPPER = _VI_VOWEL_LOWER.upper()
+_VI_ACCENTED_UPPER = _VI_ACCENTED_LOWER.upper()
+_VI_VOWEL_ALL = _VI_VOWEL_LOWER + _VI_VOWEL_UPPER
+
+_RX_VI_GLUED_LOWER = re.compile(
+    rf"([{_VI_VOWEL_LOWER}]*[{_VI_ACCENTED_LOWER}][{_VI_VOWEL_LOWER}]*)"
+    rf"(?=(?:ngh|ng|nh|ch|gh|gi|kh|ph|th|tr|qu|[bcdđghklmnpqrstvx])[{_VI_VOWEL_LOWER}]"
+    rf"|[{_VI_VOWEL_UPPER}BCDĐGHKLMNPQRSTVX0-9])"
+)
+_RX_VI_GLUED_UPPER = re.compile(
+    rf"([{_VI_VOWEL_UPPER}]*[{_VI_ACCENTED_UPPER}][{_VI_VOWEL_UPPER}]*)"
+    rf"(?=(?:NGH|NG|NH|CH|GH|GI|KH|PH|TH|TR|QU|[BCDĐGHKLMNPQRSTVX])[{_VI_VOWEL_ALL}]|[0-9])"
+)
+
+
+def repair_glued_vietnamese_text(text: str) -> str:
+    """Repair missing spaces after accented Vietnamese vowels caused by LaTeX T5 PDF font extraction."""
+    if not text:
+        return ""
+    repaired = _RX_VI_GLUED_LOWER.sub(r"\1 ", text)
+    repaired = _RX_VI_GLUED_UPPER.sub(r"\1 ", repaired)
+    return repaired
+
+
 def normalize(text: str) -> str:
     """Normalize whitespace and clean text."""
-    clean = (text or "").replace("\x00", "")
+    clean = repair_glued_vietnamese_text((text or "").replace("\x00", ""))
     return re.sub(r"\s+", " ", clean).strip()
 
 
@@ -930,3 +956,109 @@ def is_duplicate_document(
                 if c_ratio >= 0.80:
                     return True, f"TITLE_AND_COVER_MATCH (title={t_ratio:.2f}, cover={c_ratio:.2f})"
     return False, ""
+
+
+_MANIFEST_DISPLAY_CACHE: dict[str, str] | None = None
+
+_MANIFEST_OVERRIDES: dict[str, tuple[str, str]] = {
+    "kltn-71d65255b2d640c5": (
+        "NỀN TẢNG THÔNG MINH HỖ TRỢ QUẢN LÝ TOÀN DIỆN ĐỀ TÀI NGHIÊN CỨU VÀ KHÓA LUẬN TỐT NGHIỆP",
+        "HỒ PHẠM PHÚ AN - NGUYỄN NGUYÊN NGỌC ANH",
+    ),
+    "kltn-aa80cfdf64a9d50a": (
+        "XÂY DỰNG HỆ THỐNG THƯƠNG MẠI ĐIỆN TỬ MICROSERVICES CLOUD-NATIVE: TRIỂN KHAI, GIÁM SÁT VÀ QUẢN LÝ VỚI KUBERNETES, HELM VÀ ELASTIC STACK",
+        "TRƯƠNG LÊ VĨNH PHÚC - NGUYỄN THÀNH TÀI",
+    ),
+}
+
+
+def _clean_manifest_title_and_authors(raw_title: str, raw_authors: str) -> tuple[str, str]:
+    title = normalize(raw_title or "")
+    # Remove trailing English subtitle fragments if present after Vietnamese title
+    title = re.sub(
+        r"\s+(?:BUILD(?:ING)?|DEVELOP(?:ING)?|APPLY(?:ING)?|RESEARCH(?:ING)?|DESIGN(?:ING)?|CONSTRUCT(?:ING)?|TOWARDS|ENHANC(?:ING|E)|IMPROV(?:ING|E)|AI-INTEGRATED)\s+[A-Za-z0-9,\-–—:&/()'\s]+$",
+        "",
+        title,
+        flags=re.I,
+    ).strip(" -–—:;,.")
+    authors = normalize(raw_authors or "")
+    authors = re.sub(
+        r"^(?:KHOA\s+CÔNG\s+NGHỆ\s+PHẦN\s+MỀM|CÔNG\s+NGHỆ\s+PHẦN\s+MỀM|NGHỆ\s+PHẦN\s+MỀM|KỸ\s+THUẬT\s+PHẦN\s+MỀM|THUẬT\s+PHẦN\s+MỀM)\s+",
+        "",
+        authors,
+        flags=re.I,
+    ).strip(" -–—:;,.")
+    return title, authors
+
+
+def _load_manifest_display_map() -> dict[str, str]:
+    global _MANIFEST_DISPLAY_CACHE
+    if _MANIFEST_DISPLAY_CACHE is not None:
+        return _MANIFEST_DISPLAY_CACHE
+
+    import csv
+
+    mapping: dict[str, str] = {}
+    manifest_path = Path(__file__).resolve().parent.parent / "data" / "corpus_manifest.csv"
+    if manifest_path.exists():
+        with manifest_path.open("r", encoding="utf-8") as f:
+            non_comment_lines = [
+                line for line in f if line.strip() and not line.lstrip().startswith("#")
+            ]
+        reader = csv.DictReader(non_comment_lines)
+        for row in reader:
+            doc_id = (row.get("source_key") or row.get("doc_id") or "").strip()
+            fname = (
+                row.get("staged_filename") or row.get("filename") or f"{doc_id}.pdf"
+            ).strip()
+            if not doc_id:
+                continue
+            if doc_id in _MANIFEST_OVERRIDES:
+                title, authors = _MANIFEST_OVERRIDES[doc_id]
+            else:
+                title, authors = _clean_manifest_title_and_authors(
+                    row.get("title") or "",
+                    row.get("authors") or "",
+                )
+            if title:
+                display = f"{title} — {authors} ({fname})" if authors else f"{title} ({fname})"
+                mapping[doc_id] = display
+                mapping[fname] = display
+
+    _MANIFEST_DISPLAY_CACHE = mapping
+    return mapping
+
+
+def resolve_source_display_name(
+    source_key: str,
+    filename: str,
+    file_path: str | Path | None = None,
+) -> str:
+    """Resolve a human-readable thesis title and author display string for a corpus source."""
+    raw_filename = (filename or "").strip()
+    if " — " in raw_filename:
+        return raw_filename
+
+    mapping = _load_manifest_display_map()
+    stem = Path(raw_filename).stem if raw_filename else ""
+    for candidate in (source_key, raw_filename, stem):
+        if candidate and candidate in mapping:
+            return mapping[candidate]
+
+    if file_path is not None:
+        p = Path(file_path)
+        if p.exists():
+            try:
+                meta = extract_document_metadata(p)
+                title, authors = _clean_manifest_title_and_authors(
+                    meta.get("title", ""),
+                    meta.get("authors", ""),
+                )
+                if title:
+                    base = raw_filename or p.name
+                    return f"{title} — {authors} ({base})" if authors else f"{title} ({base})"
+            except Exception:
+                pass
+
+    return raw_filename or source_key
+

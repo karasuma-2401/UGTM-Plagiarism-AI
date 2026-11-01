@@ -175,9 +175,12 @@ class RemoteInferenceClient:
             effective_batch,
         )
 
+        order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
+        sorted_texts = [texts[i] for i in order]
+
         batches: list[np.ndarray] = []
-        for start in range(0, len(texts), self.max_items_per_request):
-            chunk = list(texts[start : start + self.max_items_per_request])
+        for start in range(0, len(sorted_texts), self.max_items_per_request):
+            chunk = list(sorted_texts[start : start + self.max_items_per_request])
             payload = self._request_json(
                 "POST",
                 "/encode",
@@ -202,9 +205,14 @@ class RemoteInferenceClient:
                 )
             )
 
-        if len(batches) == 1:
-            return batches[0]
-        return np.vstack(batches).astype(np.float32, copy=False)
+        stacked = (
+            batches[0]
+            if len(batches) == 1
+            else np.vstack(batches).astype(np.float32, copy=False)
+        )
+        result = np.empty_like(stacked)
+        result[order] = stacked
+        return result
 
     def rerank(
         self, pairs: list[list[str]], batch_size: int | None = None
@@ -228,11 +236,17 @@ class RemoteInferenceClient:
             effective_batch,
         )
 
-        all_scores: list[float] = []
-        for start in range(0, len(pairs), self.max_items_per_request):
+        order = sorted(
+            range(len(pairs)),
+            key=lambda i: len(pairs[i][0]) + len(pairs[i][1]),
+        )
+        sorted_pairs = [pairs[i] for i in order]
+
+        sorted_scores: list[float] = []
+        for start in range(0, len(sorted_pairs), self.max_items_per_request):
             chunk = [
                 [pair[0], pair[1]]
-                for pair in pairs[start : start + self.max_items_per_request]
+                for pair in sorted_pairs[start : start + self.max_items_per_request]
             ]
             payload = self._request_json(
                 "POST",
@@ -250,12 +264,15 @@ class RemoteInferenceClient:
                 model_fields=("model", "reranker_model"),
                 revision_fields=("revision", "reranker_revision"),
             )
-            all_scores.extend(
+            sorted_scores.extend(
                 validate_rerank_scores(
                     payload.get("scores"),
                     expected_count=len(chunk),
                 )
             )
 
-        return all_scores
+        restored_scores = [0.0] * len(pairs)
+        for sorted_idx, orig_idx in enumerate(order):
+            restored_scores[orig_idx] = sorted_scores[sorted_idx]
+        return restored_scores
 
