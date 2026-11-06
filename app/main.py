@@ -345,6 +345,34 @@ def job_status(job_id: uuid.UUID):
     }
 
 
+@app.post("/api/v1/jobs/{job_id}/retry", status_code=202, dependencies=[Depends(require_key)])
+def retry_scan_job(job_id: uuid.UUID):
+    """Requeue a finished scan without changing its document identity."""
+    with connect() as con:
+        job = con.execute(
+            """
+            UPDATE integrity.jobs
+            SET status = 'queued', report = NULL, error_code = NULL, attempt = 1,
+                retry_after = NULL, checkpoint = '{}'::jsonb, worker_id = NULL,
+                last_heartbeat = NULL, enqueued_at = NULL, reconciled_at = NULL,
+                updated_at = now()
+            WHERE id = %s::uuid AND job_type = 'scan' AND status IN ('completed', 'failed', 'cancelled')
+            RETURNING id
+            """, (str(job_id),)
+        ).fetchone()
+        if not job:
+            existing = con.execute(
+                "SELECT job_type, status FROM integrity.jobs WHERE id = %s::uuid", (str(job_id),)
+            ).fetchone()
+            if not existing:
+                raise HTTPException(status_code=404, detail="Job not found")
+            if existing["job_type"] != "scan" or existing["status"] not in ("queued", "processing", "waiting_for_compute"):
+                raise HTTPException(status_code=409, detail="Job cannot be retried")
+            return {"job_id": str(job_id), "status": existing["status"]}
+    safe_enqueue_job(str(job_id), "scan")
+    return {"job_id": str(job_id), "status": "queued"}
+
+
 @app.post("/api/v1/jobs/{job_id}/cancel", dependencies=[Depends(require_key)])
 def cancel_job_endpoint(job_id: uuid.UUID, reason: str = Query(default="USER_CANCELLED")):
     cancelled = cancel_job(str(job_id), reason=reason)

@@ -29,7 +29,7 @@ logging.basicConfig(
 logger = logging.getLogger("smoke_test_colab")
 
 
-def test_colab_worker(url: str, key: str | None = None) -> dict[str, Any]:
+def test_colab_worker(url: str, key: str | None = None, health_timeout: float = 8.0) -> dict[str, Any]:
     client = RemoteInferenceClient(
         base_url=url,
         api_key=key,
@@ -39,7 +39,7 @@ def test_colab_worker(url: str, key: str | None = None) -> dict[str, Any]:
         reranker_model=settings.reranker_model,
         reranker_revision=settings.reranker_revision,
         timeout_seconds=30.0,
-        health_timeout_seconds=8.0,
+        health_timeout_seconds=health_timeout,
     )
 
     logger.info("1. Probing /health endpoint...")
@@ -92,6 +92,7 @@ def main():
     parser = argparse.ArgumentParser(description="Test Colab Remote GPU Inference Worker")
     parser.add_argument("--url", default=None, help="Colab Cloudflare Tunnel endpoint URL")
     parser.add_argument("--key", default=None, help="Remote GPU API key")
+    parser.add_argument("--health-timeout", type=float, default=8.0, help="Health timeout in seconds (allow more for a cold start)")
     args = parser.parse_args()
 
     target_url = (args.url or settings.remote_gpu_url or "").strip().rstrip("/")
@@ -112,7 +113,7 @@ def main():
         return
 
     try:
-        report = test_colab_worker(target_url, target_key)
+        report = test_colab_worker(target_url, target_key, args.health_timeout)
         print("\n=== GPU WORKER TEST RESULT ===")
         print(json.dumps(report, indent=2))
         print("==============================\n")

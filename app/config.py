@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     remote_gpu_timeout_seconds: float = 180.0
     remote_gpu_health_timeout_seconds: float = 5.0
     remote_gpu_batch_size: int = 32
+    celery_queue: str = "celery"
 
     # Storage Backend Configuration (CP-01.4)
     storage_backend: Literal["local", "r2", "s3"] = "local"

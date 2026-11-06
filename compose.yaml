@@ -33,8 +33,21 @@ services:
       DATA_DIR: /data
       HF_HOME: /models
       CLASSIFIER_ENABLED: ${CLASSIFIER_ENABLED:-false}
-      CLASSIFIER_PATH: ${CLASSIFIER_PATH:-/artifacts/suspicious_passage_classifier.joblib}
+      # Host CLASSIFIER_PATH can be a Windows path; containers use the mounted path.
+      CLASSIFIER_PATH: ${DOCKER_CLASSIFIER_PATH:-/artifacts/suspicious_passage_classifier.joblib}
       REMOTE_GPU_URL: ${REMOTE_GPU_URL:-}
+      REMOTE_GPU_API_KEY: ${REMOTE_GPU_API_KEY:-}
+      REMOTE_GPU_TIMEOUT_SECONDS: ${REMOTE_GPU_TIMEOUT_SECONDS:-180}
+      REMOTE_GPU_HEALTH_TIMEOUT_SECONDS: ${REMOTE_GPU_HEALTH_TIMEOUT_SECONDS:-120}
+      REMOTE_GPU_BATCH_SIZE: ${REMOTE_GPU_BATCH_SIZE:-32}
+      CELERY_QUEUE: ${CELERY_QUEUE:-celery}
+      # Explicit opt-in keeps existing local jobs and files on their current backend.
+      STORAGE_BACKEND: ${DOCKER_STORAGE_BACKEND:-local}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME:-}
+      S3_REGION_NAME: ${S3_REGION_NAME:-us-east-1}
     volumes:
       - uploads:/data
       - ./app:/service/app:ro
@@ -48,7 +61,7 @@ services:
 
   worker:
     build: .
-    command: celery -A app.celery_app.celery_app worker --loglevel=INFO --concurrency=1 --pool=solo
+    command: celery -A app.celery_app.celery_app worker --loglevel=INFO --concurrency=1 --pool=solo -Q ${CELERY_QUEUE:-celery}
     environment: *ai_env
     volumes:
       - uploads:/data
@@ -57,6 +70,9 @@ services:
       - ./frontend/dist:/service/frontend/dist:ro
       - models:/models
       - ./artifacts:/artifacts:ro
+      # Make the migration tool available for existing database volumes.
+      - ./scripts:/service/scripts:ro
+      - ./sql:/service/sql:ro
     depends_on:
       db:
         condition: service_healthy

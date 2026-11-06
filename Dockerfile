@@ -14,7 +14,8 @@ COPY requirements ./requirements
 RUN python -m pip install --no-cache-dir -r requirements/cpu-worker.txt
 
 COPY app ./app
-COPY artifacts ./artifacts
+# Classifier artifacts are excluded from the build context and supplied by a volume.
+RUN mkdir -p ./artifacts
 COPY training ./training
 COPY tests ./tests
 
